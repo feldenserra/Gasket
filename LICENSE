@@ -39,10 +39,10 @@ Licensed Work.
         research, or evaluation purposes;
     (b) an internal development team of a Legal Entity; or
     (c) a Legal Entity whose Annual Gross Revenue is less than or equal to
-        five million United States dollars (USD $5,000,000).
+        one million United States dollars (USD $1,000,000).
 
   "Enterprise User" means a Legal Entity whose Annual Gross Revenue exceeds
-  five million United States dollars (USD $5,000,000).
+  one million United States dollars (USD $1,000,000).
 
   "Managed Service" means offering the Licensed Work, or a substantial
   portion of its functionality, to third parties as a paid hosted, cloud,
@@ -66,7 +66,7 @@ Licensed Work.
 
   This grant is intended to cover individuals, hobbyists, students,
   researchers, internal development teams, and small commercial entities
-  whose Annual Gross Revenue does not exceed USD $5,000,000.
+  whose Annual Gross Revenue does not exceed USD $1,000,000.
 
 
 3. Restricted Uses; Commercial License Required
@@ -76,7 +76,7 @@ Licensed Work.
 
     (a) Use of the Licensed Work by an Enterprise User, including internal,
         production, development, or evaluation use once the Legal Entity's
-        Annual Gross Revenue exceeds USD $5,000,000;
+        Annual Gross Revenue exceeds USD $1,000,000;
 
     (b) Use of the Licensed Work to provide a Managed Service, regardless of
         Annual Gross Revenue, entity size, or whether the offering is branded
@@ -85,7 +85,7 @@ Licensed Work.
     (c) Any other use that is not expressly permitted under Section 2.
 
   If You are an enterprise, corporation, or other commercial Legal Entity
-  making over USD $5,000,000 in Annual Gross Revenue, or You offer Gasket as
+  making over USD $1,000,000 in Annual Gross Revenue, or You offer Gasket as
   a paid managed service, You have no license under this document for that
   use and must obtain a Commercial License or refrain from using the
   Licensed Work.
@@ -98,7 +98,7 @@ Licensed Work.
 
 4. Permanence; No Conversion to Open Source
 
-  The USD $5,000,000 revenue threshold, the Managed Service restriction, and
+  The USD $1,000,000 revenue threshold, the Managed Service restriction, and
   all other terms of this License are PERMANENT.
 
   This License does not include a change date, conversion date, or

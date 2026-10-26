@@ -117,8 +117,8 @@ Gasket is **source-available** under the [Gasket Source-Available License 1.0](.
 | Who | What you may do |
 | --- | --- |
 | Individuals, hobbyists, students, and researchers | Use, modify, and build with Gasket at no charge |
-| Internal development teams and commercial entities with **≤ USD $5,000,000** annual gross revenue | Production use at no charge, provided you are not offering Gasket as a paid managed service |
-| Enterprises, corporations, or commercial entities with **> USD $5,000,000** annual gross revenue | A **commercial license is required** |
+| Internal development teams and commercial entities with **≤ USD $1,000,000** annual gross revenue | Production use at no charge, provided you are not offering Gasket as a paid managed service |
+| Enterprises, corporations, or commercial entities with **> USD $1,000,000** annual gross revenue | A **commercial license is required** |
 | Anyone offering Gasket as a **paid managed service** | A **commercial license is required**, regardless of revenue |
 
 The revenue threshold and managed-service restriction are **permanent**.
