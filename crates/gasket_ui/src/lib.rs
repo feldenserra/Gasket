@@ -198,7 +198,12 @@ async fn push_route(mut socket: WebSocket, routes: Arc<[Route]>) {
         let Some(every) = every else {
             break;
         };
-        tokio::time::sleep(every).await;
+        // A closed socket must wake this wait. Calling `get()` after the
+        // client has left would move the route's counter while the page is gone.
+        tokio::select! {
+            () = tokio::time::sleep(every) => {}
+            _ = socket.recv() => break,
+        }
     }
 }
 
@@ -489,15 +494,17 @@ fn watch_ws(
             return;
         }
     };
-    if let tungstenite::stream::MaybeTlsStream::Plain(tcp) = socket.get_mut() {
-        let _ = tcp.set_read_timeout(Some(Duration::from_millis(300)));
-    }
     if socket
         .send(tungstenite::Message::Text(path.to_string()))
         .is_err()
     {
         let _ = tx.send(Err("could not subscribe on /ws".into()));
         return;
+    }
+    if let tungstenite::stream::MaybeTlsStream::Plain(tcp) = socket.get_mut() {
+        // A blocking read would sit until the next push, so leaving the page
+        // could not close the socket until the server had already called `get()`.
+        let _ = tcp.set_nonblocking(true);
     }
     while !stop.load(Ordering::Relaxed) {
         match socket.read() {
@@ -509,7 +516,10 @@ fn watch_ws(
             Ok(_) => {}
             Err(tungstenite::Error::Io(err))
                 if err.kind() == std::io::ErrorKind::WouldBlock
-                    || err.kind() == std::io::ErrorKind::TimedOut => {}
+                    || err.kind() == std::io::ErrorKind::TimedOut =>
+            {
+                std::thread::sleep(Duration::from_millis(50));
+            }
             Err(err) => {
                 let _ = tx.send(Err(err.to_string()));
                 break;
