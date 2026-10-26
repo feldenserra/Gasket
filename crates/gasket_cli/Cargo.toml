@@ -1,11 +1,15 @@
 [package]
 name = "gasket-cli"
-description = "Gasket developer CLI"
+description = "The gasket command. Install this package; applications depend on gasket-ui."
 version.workspace = true
 edition.workspace = true
 authors.workspace = true
+license-file.workspace = true
+homepage.workspace = true
+documentation.workspace = true
 repository.workspace = true
-license-file = "../../LICENSE"
+keywords = ["gasket", "cli", "desktop"]
+categories = ["command-line-utilities", "development-tools"]
 
 # Published as `gasket-cli`. The crates.io name `gasket` already belongs to
 # an unrelated project, so the binary is named `gasket` and the package is not.

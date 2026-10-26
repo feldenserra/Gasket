@@ -1,11 +1,16 @@
 [package]
 name = "gasket-ui"
-description = "Native shell for Gasket applications"
+description = "Native shell for Gasket apps. This is the crate an application depends on."
 version.workspace = true
 edition.workspace = true
 authors.workspace = true
+license-file.workspace = true
+homepage.workspace = true
+documentation.workspace = true
 repository.workspace = true
-license-file = "../../LICENSE"
+readme = "../../README.md"
+keywords = ["gasket", "gui", "desktop", "native", "framework"]
+categories = ["gui", "web-programming::http-server"]
 
 [dependencies]
 axum.workspace = true

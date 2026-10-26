@@ -1,11 +1,15 @@
 [package]
 name = "gasket-macros"
-description = "Folder discovery for Gasket applications"
+description = "Compile-time route discovery used by gasket-ui. Applications should depend on gasket-ui."
 version.workspace = true
 edition.workspace = true
 authors.workspace = true
+license-file.workspace = true
+homepage.workspace = true
+documentation.workspace = true
 repository.workspace = true
-license-file = "../../LICENSE"
+keywords = ["gasket", "proc-macro", "codegen"]
+categories = ["development-tools::procedural-macro-helpers"]
 
 [lib]
 proc-macro = true

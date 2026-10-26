@@ -8,6 +8,31 @@ Gasket is a unified framework for building native desktop applications in Rust. 
 
 ---
 
+## Install
+
+An application depends on [`gasket-ui`](https://crates.io/crates/gasket-ui). That is the crate to use.
+
+```toml
+[dependencies]
+gasket-ui = "0.1"
+```
+
+`src/main.rs` stays one line:
+
+```rust
+gasket_ui::app!();
+```
+
+The `gasket` command is the [`gasket-cli`](https://crates.io/crates/gasket-cli) package. The crates.io name `gasket` belongs to an unrelated project, so the binary is named `gasket` and the package is `gasket-cli`.
+
+```bash
+cargo install gasket-cli
+```
+
+[`gasket-core`](https://crates.io/crates/gasket-core) and [`gasket-macros`](https://crates.io/crates/gasket-macros) are published because `gasket-ui` depends on them. An application does not depend on them. Every crate's documentation link points at [docs.rs/gasket-ui](https://docs.rs/gasket-ui).
+
+---
+
 ## Why Gasket
 
 Traditional desktop stacks inherited the web browser. Electron embeds Chromium. Many "native" toolkits still parse HTML, walk a DOM, and pay JavaScript-bridge costs on every interaction. That model is familiar. It is also heavy, slow to start, and difficult to secure.
@@ -51,10 +76,10 @@ Gasket is a **unified monorepo**. The framework crates plus **stitch** are the p
        └─────────────────┘           └─────────────────┘
 ```
 
+- **`gasket-ui`** — The crate an application depends on. It starts the server, opens the window, and feeds each page. Today the page UI is throwaway egui. The destination is a GPU renderer that compiles **stitch** into a retained scene graph.
 - **`gasket-cli`** — The `gasket` command. It runs an application. It does not contain one. The crates.io package is `gasket-cli` because the name `gasket` is already taken.
-- **`gasket-core`** — The Axum engine. It serves the router the shell built.
-- **`gasket-ui`** — Starts that server, opens the window, and feeds each page. Today the page UI is throwaway egui. The destination is a GPU renderer that compiles **stitch** into a retained scene graph.
-- **`gasket-macros`** — Reads `src/api` and `src/ui` at compile time so `main.rs` stays one line. Authors do not call it.
+- **`gasket-core`** — The Axum engine `gasket-ui` uses. It serves the router the shell built. Applications do not depend on it directly.
+- **`gasket-macros`** — Reads `src/api` and `src/ui` at compile time so `main.rs` stays one line. `gasket_ui::app!` calls it. Authors do not.
 
 **stitch** is the UI markup language: declarative, component-oriented, and designed to bind directly against core-streamed state. You write structure and intent; `gasket_ui` handles rendering. The current shell is not that renderer.
 
@@ -62,7 +87,7 @@ Gasket is a **unified monorepo**. The framework crates plus **stitch** are the p
 
 ## Quickstart
 
-Clone the repository and start the reference app:
+The [Install](#install) section is how an application depends on Gasket. To run the reference app in this repository, clone it and start that app:
 
 ```bash
 git clone https://github.com/feldenserra/Gasket.git
