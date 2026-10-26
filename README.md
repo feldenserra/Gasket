@@ -67,15 +67,25 @@ cargo run -p gasket-cli -- dev
 `gasket dev` runs `examples/hello`. That app is the developer experience:
 
 ```text
-examples/hello/src/main.rs            gasket_ui::app!();
-examples/hello/src/api/hello/mod.rs   get() -> Response
-examples/hello/src/ui/hello/mod.rs    show(ui, data)
+examples/hello/src/main.rs             gasket_ui::app!();
+examples/hello/src/api/index/mod.rs    dashboard JSON
+examples/hello/src/ui/index/mod.rs     home page, buttons open other pages
+examples/hello/src/api/hello/mod.rs    HTTP snapshot
+examples/hello/src/ui/hello/mod.rs     draws that snapshot
+examples/hello/src/api/about/mod.rs    second HTTP snapshot
+examples/hello/src/ui/about/mod.rs     draws that snapshot
+examples/hello/src/api/stream/mod.rs   STREAM_EVERY of 1 second
+examples/hello/src/ui/stream/mod.rs    draws that response
+examples/hello/src/api/pulse/mod.rs    STREAM_EVERY of 5 seconds
+examples/hello/src/ui/pulse/mod.rs     draws that response
+examples/hello/src/api/health/mod.rs   a route with no page
 ```
 
-`src/api/hello` is `GET /api/hello`. `src/ui/hello` draws that response. Adding a feature means adding a folder. The framework starts the server and the window.
+The window opens on `index`. Its buttons come from `GET /api/index`. Hello and About are single HTTP requests. Stream and Pulse define `STREAM_EVERY` (1 second and 5 seconds) and are pushed on `/ws` while that page is open. The pages only draw the JSON. Health is curl only:
 
 ```bash
 curl http://127.0.0.1:3000/api/hello
+curl http://127.0.0.1:3000/api/health
 ```
 
 The same app directly:

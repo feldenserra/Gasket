@@ -7,12 +7,13 @@
 
 use std::io::{Read, Write};
 use std::net::SocketAddr;
-use std::sync::mpsc;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{mpsc, Arc};
 use std::time::Duration;
 
+use axum::extract::ws::{Message, WebSocket, WebSocketUpgrade};
 use axum::routing::get;
 use axum::{Json, Router};
-use gasket_protocol::{ClientMessage, ServerMessage};
 
 #[doc(hidden)]
 pub use gasket_macros::app as app_impl;
@@ -25,7 +26,10 @@ pub use eframe::egui;
 /// Discover `src/api` routes and `src/ui` pages, then start the app.
 ///
 /// Put this alone in `main.rs`. `src/api/<name>/mod.rs` defines `get() -> Response`.
-/// `src/ui/<name>/mod.rs` defines `show(ui, data)` for that same response.
+/// `src/ui/<name>/mod.rs` defines `show(ui, data, nav)` for that same response.
+/// `nav.open("name")` switches pages. A page named `index` is the home
+/// dashboard. A route that defines `STREAM_EVERY` is pushed on `/ws` at that
+/// interval; the page still only draws the response.
 /// A page with no matching route does not compile. `get` should return quickly;
 /// it runs on the server.
 #[macro_export]
@@ -41,6 +45,8 @@ macro_rules! app {
 pub struct Route {
     pub path: &'static str,
     pub call: fn() -> serde_json::Value,
+    /// Set from the route's `STREAM_EVERY`. `None` is one HTTP response.
+    pub stream_every: Option<Duration>,
 }
 
 /// One page discovered from `src/ui`, fed by the route of the same name.
@@ -49,7 +55,24 @@ pub struct Route {
 pub struct Page {
     pub name: &'static str,
     pub path: &'static str,
-    pub paint: fn(&mut egui::Ui, &[u8]),
+    /// Copied from the paired route. The page function does not see it.
+    pub stream_every: Option<Duration>,
+    pub paint: fn(&mut egui::Ui, &[u8], &mut Nav<'_>),
+}
+
+/// Lets a page open another page by folder name.
+pub struct Nav<'a> {
+    names: &'a [&'static str],
+    target: &'a mut Option<usize>,
+}
+
+impl Nav<'_> {
+    /// Open the page whose folder is `page`. An unknown name does nothing.
+    pub fn open(&mut self, page: &str) {
+        if let Some(index) = self.names.iter().position(|name| *name == page) {
+            *self.target = Some(index);
+        }
+    }
 }
 
 /// Start core, then open the shell on this thread.
@@ -119,7 +142,7 @@ fn start_core(port: u16, routes: Vec<Route>) -> Result<SocketAddr, Box<dyn std::
             };
             let _ = ready_tx.send(Ok(addr));
             let app = build_router(&routes);
-            if let Err(err) = gasket_core::serve(listener, app, stream_handler).await {
+            if let Err(err) = gasket_core::serve_http(listener, app).await {
                 eprintln!("gasket: core stopped: {err}");
             }
         });
@@ -132,21 +155,51 @@ fn start_core(port: u16, routes: Vec<Route>) -> Result<SocketAddr, Box<dyn std::
     }
 }
 
-fn stream_handler(message: ClientMessage) -> ServerMessage {
-    match message {
-        ClientMessage::RequestHello => ServerMessage::Hello {
-            message: "ok".into(),
-            status: "ok".into(),
-        },
-    }
-}
-
 fn build_router(routes: &[Route]) -> Router {
-    routes.iter().fold(Router::new(), |router, route| {
+    let shared: Arc<[Route]> = routes.to_vec().into();
+    let router = shared.iter().fold(Router::new(), |router, route| {
         let path = route.path;
         let call = route.call;
         router.route(path, get(move || async move { Json(call()) }))
-    })
+    });
+    let ws_routes = Arc::clone(&shared);
+    router.route(
+        "/ws",
+        get(move |upgrade: WebSocketUpgrade| {
+            let ws_routes = Arc::clone(&ws_routes);
+            async move { upgrade.on_upgrade(move |socket| push_route(socket, ws_routes)) }
+        }),
+    )
+}
+
+/// The client sends one text frame, the route path. The server replies with
+/// that route's JSON. If the route set `STREAM_EVERY`, it keeps sending at
+/// that interval until the socket closes.
+async fn push_route(mut socket: WebSocket, routes: Arc<[Route]>) {
+    let Some(Ok(Message::Text(text))) = socket.recv().await else {
+        return;
+    };
+    let path = text.trim();
+    let Some(route) = routes.iter().find(|route| route.path == path) else {
+        let _ = socket
+            .send(Message::Text(format!(
+                r#"{{"error":"unknown route {path}"}}"#
+            )))
+            .await;
+        return;
+    };
+    let call = route.call;
+    let every = route.stream_every.filter(|every| !every.is_zero());
+    loop {
+        let json = serde_json::to_string(&call()).unwrap_or_else(|_| "{}".to_string());
+        if socket.send(Message::Text(json)).await.is_err() {
+            break;
+        }
+        let Some(every) = every else {
+            break;
+        };
+        tokio::time::sleep(every).await;
+    }
 }
 
 fn run_shell(addr: SocketAddr, pages: Vec<Page>) -> eframe::Result<()> {
@@ -253,54 +306,104 @@ struct ShellApp {
     body: Option<Vec<u8>>,
     error: Option<String>,
     pending: Option<mpsc::Receiver<Result<Vec<u8>, String>>>,
+    live: bool,
+    stop_stream: Option<Arc<AtomicBool>>,
 }
 
 impl ShellApp {
     fn new(addr: SocketAddr, pages: Vec<Page>) -> Self {
+        let current = pages
+            .iter()
+            .position(|page| page.name == "index")
+            .unwrap_or(0);
         let mut app = Self {
             addr,
             pages,
-            current: 0,
+            current,
             body: None,
             error: None,
             pending: None,
+            live: false,
+            stop_stream: None,
         };
         app.refresh();
         app
     }
 
+    fn go(&mut self, index: usize) {
+        self.current = index;
+        self.body = None;
+        self.error = None;
+        self.refresh();
+    }
+
     fn refresh(&mut self) {
+        if let Some(stop) = self.stop_stream.take() {
+            stop.store(true, Ordering::Relaxed);
+        }
+        self.pending = None;
         let Some(page) = self.pages.get(self.current).copied() else {
+            self.live = false;
             return;
         };
+        self.error = None;
+        self.live = page.stream_every.is_some();
+        if self.live {
+            self.watch(page.path);
+        } else {
+            self.fetch(page.path);
+        }
+    }
+
+    fn fetch(&mut self, path: &'static str) {
         let addr = self.addr;
         let (tx, rx) = mpsc::channel();
         std::thread::spawn(move || {
-            let _ = tx.send(http_get(addr, page.path));
+            let _ = tx.send(http_get(addr, path));
         });
         self.pending = Some(rx);
-        self.error = None;
+    }
+
+    fn watch(&mut self, path: &'static str) {
+        let addr = self.addr;
+        let stop = Arc::new(AtomicBool::new(false));
+        let (tx, rx) = mpsc::channel();
+        let flag = Arc::clone(&stop);
+        std::thread::spawn(move || watch_ws(addr, path, flag, tx));
+        self.stop_stream = Some(stop);
+        self.pending = Some(rx);
     }
 
     fn poll(&mut self) {
-        let Some(rx) = &self.pending else {
-            return;
-        };
-        match rx.try_recv() {
-            Ok(Ok(body)) => {
-                self.body = Some(body);
-                self.error = None;
-                self.pending = None;
+        let mut done = false;
+        if let Some(rx) = &self.pending {
+            loop {
+                match rx.try_recv() {
+                    Ok(Ok(body)) => {
+                        self.body = Some(body);
+                        self.error = None;
+                        if !self.live {
+                            done = true;
+                            break;
+                        }
+                    }
+                    Ok(Err(err)) => {
+                        self.error = Some(err);
+                        done = true;
+                        break;
+                    }
+                    Err(mpsc::TryRecvError::Empty) => break,
+                    Err(mpsc::TryRecvError::Disconnected) => {
+                        self.error = Some("Route request dropped.".into());
+                        done = true;
+                        break;
+                    }
+                }
             }
-            Ok(Err(err)) => {
-                self.error = Some(err);
-                self.pending = None;
-            }
-            Err(mpsc::TryRecvError::Empty) => {}
-            Err(mpsc::TryRecvError::Disconnected) => {
-                self.error = Some("Route request dropped.".into());
-                self.pending = None;
-            }
+        }
+        if done {
+            self.pending = None;
+            self.live = false;
         }
     }
 }
@@ -308,52 +411,110 @@ impl ShellApp {
 impl eframe::App for ShellApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         self.poll();
+        let names: Vec<&'static str> = self.pages.iter().map(|page| page.name).collect();
+        let has_index = names.contains(&"index");
+        let current_name = names.get(self.current).copied();
+        let page = self.pages.get(self.current).copied();
+        let body = self.body.clone();
+        let error = self.error.clone();
+        let waiting = self.pending.is_some() && body.is_none() && error.is_none();
+        let live = self.live;
+        let addr = self.addr;
+        let mut destination = None;
+        let mut refresh = false;
+
         egui::CentralPanel::default().show(ctx, |ui| {
-            let mut switch = None;
-            if self.pages.len() > 1 {
+            if has_index && current_name != Some("index") && ui.button("Back").clicked() {
+                destination = names.iter().position(|name| *name == "index");
+            }
+            if !has_index && names.len() > 1 {
                 ui.horizontal(|ui| {
-                    for (index, page) in self.pages.iter().enumerate() {
-                        if ui
-                            .selectable_label(index == self.current, page.name)
-                            .clicked()
-                        {
-                            switch = Some(index);
+                    for (index, name) in names.iter().enumerate() {
+                        if ui.selectable_label(index == self.current, *name).clicked() {
+                            destination = Some(index);
                         }
                     }
                 });
             }
-            if let Some(index) = switch {
-                if index != self.current {
-                    self.current = index;
-                    self.body = None;
-                    self.refresh();
-                }
+            ui.label(format!("Core: http://{addr}"));
+            if live {
+                ui.label(format!("Live: ws://{addr}/ws"));
             }
-            ui.label(format!("Core: http://{}", self.addr));
             ui.separator();
 
-            if self.pending.is_some() && self.body.is_none() && self.error.is_none() {
+            if waiting {
                 ui.label("Loading...");
-                ctx.request_repaint_after(Duration::from_millis(50));
-            } else if let Some(err) = &self.error {
+            } else if let Some(err) = &error {
                 ui.label(err);
-            } else if let (Some(page), Some(body)) =
-                (self.pages.get(self.current), self.body.as_deref())
-            {
-                (page.paint)(ui, body);
-            } else if self.pages.is_empty() {
+            } else if let (Some(page), Some(body)) = (page, body.as_deref()) {
+                let mut nav = Nav {
+                    names: &names,
+                    target: &mut destination,
+                };
+                (page.paint)(ui, body, &mut nav);
+            } else if names.is_empty() {
                 ui.label("This app has no pages.");
             }
 
-            if self.pending.is_some() && self.body.is_some() {
-                ctx.request_repaint_after(Duration::from_millis(50));
-            }
-
             ui.add_space(10.0);
-            if !self.pages.is_empty() && ui.button("Refresh").clicked() {
-                self.refresh();
+            if !live && !names.is_empty() && ui.button("Refresh").clicked() {
+                refresh = true;
             }
         });
+
+        if self.live || self.pending.is_some() {
+            ctx.request_repaint_after(Duration::from_millis(50));
+        }
+        if let Some(index) = destination {
+            if index != self.current {
+                self.go(index);
+            }
+        } else if refresh {
+            self.refresh();
+        }
+    }
+}
+
+fn watch_ws(
+    addr: SocketAddr,
+    path: &str,
+    stop: Arc<AtomicBool>,
+    tx: mpsc::Sender<Result<Vec<u8>, String>>,
+) {
+    let url = format!("ws://{addr}/ws");
+    let mut socket = match tungstenite::connect(&url) {
+        Ok((socket, _)) => socket,
+        Err(err) => {
+            let _ = tx.send(Err(err.to_string()));
+            return;
+        }
+    };
+    if let tungstenite::stream::MaybeTlsStream::Plain(tcp) = socket.get_mut() {
+        let _ = tcp.set_read_timeout(Some(Duration::from_millis(300)));
+    }
+    if socket
+        .send(tungstenite::Message::Text(path.to_string()))
+        .is_err()
+    {
+        let _ = tx.send(Err("could not subscribe on /ws".into()));
+        return;
+    }
+    while !stop.load(Ordering::Relaxed) {
+        match socket.read() {
+            Ok(tungstenite::Message::Text(text)) => {
+                if tx.send(Ok(text.into_bytes())).is_err() {
+                    break;
+                }
+            }
+            Ok(_) => {}
+            Err(tungstenite::Error::Io(err))
+                if err.kind() == std::io::ErrorKind::WouldBlock
+                    || err.kind() == std::io::ErrorKind::TimedOut => {}
+            Err(err) => {
+                let _ = tx.send(Err(err.to_string()));
+                break;
+            }
+        }
     }
 }
 
@@ -373,6 +534,7 @@ mod tests {
                     "status": "ok"
                 })
             },
+            stream_every: None,
         }
     }
 
@@ -409,7 +571,7 @@ mod tests {
             runtime.block_on(async move {
                 let listener = gasket_core::bind(0).await.unwrap();
                 ready_tx.send(listener.local_addr().unwrap()).unwrap();
-                gasket_core::serve(listener, build_router(&routes), stream_handler)
+                gasket_core::serve_http(listener, build_router(&routes))
                     .await
                     .unwrap();
             });
@@ -420,5 +582,76 @@ mod tests {
         let value: serde_json::Value = serde_json::from_slice(&body).unwrap();
         assert_eq!(value["message"], "Hello from the Gasket reference app");
         assert_eq!(value["status"], "ok");
+    }
+
+    #[test]
+    fn websocket_pushes_the_route() {
+        let routes = vec![hello_route()];
+        let (ready_tx, ready_rx) = mpsc::channel();
+        std::thread::spawn(move || {
+            let runtime = tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+                .unwrap();
+            runtime.block_on(async move {
+                let listener = gasket_core::bind(0).await.unwrap();
+                ready_tx.send(listener.local_addr().unwrap()).unwrap();
+                gasket_core::serve_http(listener, build_router(&routes))
+                    .await
+                    .unwrap();
+            });
+        });
+        let addr = ready_rx.recv().unwrap();
+        let (mut socket, _) = tungstenite::connect(format!("ws://{addr}/ws")).unwrap();
+        socket
+            .send(tungstenite::Message::Text("/api/hello".into()))
+            .unwrap();
+        let frame = socket.read().unwrap();
+        let tungstenite::Message::Text(text) = frame else {
+            panic!("expected a text frame, got {frame:?}");
+        };
+        let value: serde_json::Value = serde_json::from_str(&text).unwrap();
+        assert_eq!(value["message"], "Hello from the Gasket reference app");
+        assert_eq!(value["status"], "ok");
+    }
+
+    #[test]
+    fn websocket_waits_for_the_route_interval() {
+        let routes = vec![Route {
+            path: "/api/orders",
+            call: || serde_json::json!({"ok": true}),
+            stream_every: Some(Duration::from_millis(80)),
+        }];
+        let (ready_tx, ready_rx) = mpsc::channel();
+        std::thread::spawn(move || {
+            let runtime = tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+                .unwrap();
+            runtime.block_on(async move {
+                let listener = gasket_core::bind(0).await.unwrap();
+                ready_tx.send(listener.local_addr().unwrap()).unwrap();
+                gasket_core::serve_http(listener, build_router(&routes))
+                    .await
+                    .unwrap();
+            });
+        });
+        let addr = ready_rx.recv().unwrap();
+        let (mut socket, _) = tungstenite::connect(format!("ws://{addr}/ws")).unwrap();
+        socket
+            .send(tungstenite::Message::Text("/api/orders".into()))
+            .unwrap();
+        let _first = socket.read().unwrap();
+        let started = std::time::Instant::now();
+        let _second = socket.read().unwrap();
+        let elapsed = started.elapsed();
+        assert!(
+            elapsed >= Duration::from_millis(50),
+            "interval was too short: {elapsed:?}"
+        );
+        assert!(
+            elapsed < Duration::from_millis(500),
+            "interval ignored the route and waited {elapsed:?}"
+        );
     }
 }

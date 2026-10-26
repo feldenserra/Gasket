@@ -1,8 +1,8 @@
 //! Axum engine for Gasket applications.
 //!
-//! Application code owns its HTTP routes and the replies on the state stream.
-//! [`serve`] always attaches `/ws`, whose text frames are
-//! [`gasket_protocol`] messages. The UI is a client of that stream.
+//! [`serve_http`] serves the router it is given. [`serve`] also attaches a
+//! `/ws` endpoint that speaks [`gasket_protocol`] messages. The shell uses
+//! [`serve_http`] and mounts its own `/ws` for application JSON.
 
 use std::sync::Arc;
 
@@ -21,6 +21,14 @@ type StateHandler = Arc<dyn Fn(ClientMessage) -> ServerMessage + Send + Sync>;
 pub async fn bind(port: u16) -> std::io::Result<TcpListener> {
     let addr = std::net::SocketAddr::from(([127, 0, 0, 1], port));
     TcpListener::bind(addr).await
+}
+
+/// Serve `app` until the listener closes.
+///
+/// Does not attach a socket of its own. The shell mounts `/ws` when it builds
+/// the application router.
+pub async fn serve_http(listener: TcpListener, app: Router) -> std::io::Result<()> {
+    axum::serve(listener, app).await
 }
 
 /// Serve `app` plus the `/ws` state stream until the listener closes.

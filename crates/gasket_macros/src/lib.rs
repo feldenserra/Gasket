@@ -9,8 +9,14 @@ use std::fs;
 use std::path::Path;
 
 #[derive(Debug)]
+struct RouteDecl {
+    name: String,
+    stream: bool,
+}
+
+#[derive(Debug)]
 struct Layout {
-    routes: Vec<String>,
+    routes: Vec<RouteDecl>,
     pages: Vec<String>,
 }
 
@@ -36,16 +42,33 @@ fn expand(manifest_dir: &str) -> Result<TokenStream2, String> {
 }
 
 fn discover(src: &Path) -> Result<Layout, String> {
-    let routes = modules(&src.join("api"), "src/api")?;
+    let routes: Vec<RouteDecl> = modules(&src.join("api"), "src/api")?
+        .into_iter()
+        .map(|name| {
+            let stream = declares_stream(&src.join("api").join(&name).join("mod.rs"));
+            RouteDecl { name, stream }
+        })
+        .collect();
     let pages = modules(&src.join("ui"), "src/ui")?;
     for page in &pages {
-        if !routes.iter().any(|route| route == page) {
+        if !routes.iter().any(|route| route.name == *page) {
             return Err(format!(
                 "src/ui/{page} has no matching src/api/{page} route"
             ));
         }
     }
     Ok(Layout { routes, pages })
+}
+
+/// A route streams when its module defines `STREAM_EVERY`.
+fn declares_stream(path: &Path) -> bool {
+    let Ok(source) = fs::read_to_string(path) else {
+        return false;
+    };
+    source.lines().any(|line| {
+        let code = line.split("//").next().unwrap_or("");
+        code.contains("const STREAM_EVERY")
+    })
 }
 
 fn modules(dir: &Path, label: &str) -> Result<Vec<String>, String> {
@@ -77,18 +100,18 @@ fn modules(dir: &Path, label: &str) -> Result<Vec<String>, String> {
 }
 
 fn expand_layout(layout: &Layout) -> TokenStream2 {
-    let api_mods = layout.routes.iter().map(|name| {
-        let ident = format_ident!("{name}");
+    let api_mods = layout.routes.iter().map(|route| {
+        let ident = format_ident!("{}", route.name);
         quote! { pub mod #ident; }
     });
     let ui_mods = layout.pages.iter().map(|name| {
         let ident = format_ident!("{name}");
         quote! { pub mod #ident; }
     });
-    let calls = layout.routes.iter().map(|name| {
-        let ident = format_ident!("call_{name}");
-        let module = format_ident!("{name}");
-        let message = format!("api/{name} must serialize");
+    let calls = layout.routes.iter().map(|route| {
+        let ident = format_ident!("call_{}", route.name);
+        let module = format_ident!("{}", route.name);
+        let message = format!("api/{} must serialize", route.name);
         quote! {
             pub fn #ident() -> gasket_ui::serde_json::Value {
                 gasket_ui::serde_json::to_value(super::api::#module::get()).expect(#message)
@@ -99,9 +122,9 @@ fn expand_layout(layout: &Layout) -> TokenStream2 {
         let ident = format_ident!("paint_{name}");
         let module = format_ident!("{name}");
         quote! {
-            pub fn #ident(ui: &mut gasket_ui::egui::Ui, bytes: &[u8]) {
+            pub fn #ident(ui: &mut gasket_ui::egui::Ui, bytes: &[u8], nav: &mut gasket_ui::Nav) {
                 match gasket_ui::serde_json::from_slice::<super::api::#module::Response>(bytes) {
-                    Ok(data) => super::ui::#module::show(ui, &data),
+                    Ok(data) => super::ui::#module::show(ui, &data, nav),
                     Err(err) => {
                         ui.label(err.to_string());
                     }
@@ -109,23 +132,41 @@ fn expand_layout(layout: &Layout) -> TokenStream2 {
             }
         }
     });
-    let route_values = layout.routes.iter().map(|name| {
-        let path = format!("/api/{name}");
-        let call = format_ident!("call_{name}");
+    let route_values = layout.routes.iter().map(|route| {
+        let path = format!("/api/{}", route.name);
+        let call = format_ident!("call_{}", route.name);
+        let module = format_ident!("{}", route.name);
+        let every = if route.stream {
+            quote! { Some(api::#module::STREAM_EVERY) }
+        } else {
+            quote! { None }
+        };
         quote! {
             gasket_ui::Route {
                 path: #path,
                 call: __gasket::#call,
+                stream_every: #every,
             }
         }
     });
     let page_values = layout.pages.iter().map(|name| {
         let path = format!("/api/{name}");
         let paint = format_ident!("paint_{name}");
+        let module = format_ident!("{name}");
+        let every = if layout
+            .routes
+            .iter()
+            .any(|route| route.name == *name && route.stream)
+        {
+            quote! { Some(api::#module::STREAM_EVERY) }
+        } else {
+            quote! { None }
+        };
         quote! {
             gasket_ui::Page {
                 name: #name,
                 path: #path,
+                stream_every: #every,
                 paint: __gasket::#paint,
             }
         }
@@ -184,11 +225,14 @@ mod tests {
         fs::write(root.join("src/ui/hello/mod.rs"), b"").unwrap();
 
         let layout = discover(&root.join("src")).unwrap();
-        assert_eq!(layout.routes, vec!["hello".to_string()]);
+        assert_eq!(layout.routes.len(), 1);
+        assert_eq!(layout.routes[0].name, "hello");
+        assert!(!layout.routes[0].stream);
         assert_eq!(layout.pages, vec!["hello".to_string()]);
         let tokens = expand_layout(&layout).to_string();
         assert!(tokens.contains("pub mod hello"));
         assert!(tokens.contains("\"/api/hello\""));
+        assert!(tokens.contains("stream_every"));
 
         fs::remove_dir_all(&root).unwrap();
     }
@@ -204,6 +248,28 @@ mod tests {
 
         let error = discover(&root.join("src")).unwrap_err();
         assert!(error.contains("src/ui/home"));
+
+        fs::remove_dir_all(&root).unwrap();
+    }
+
+    #[test]
+    fn stream_every_marks_the_route() {
+        let root =
+            std::env::temp_dir().join(format!("gasket-macros-stream-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&root);
+        fs::create_dir_all(root.join("src/api/orders")).unwrap();
+        fs::write(
+            root.join("src/api/orders/mod.rs"),
+            b"pub const STREAM_EVERY: std::time::Duration = std::time::Duration::from_secs(5);\n",
+        )
+        .unwrap();
+        fs::create_dir_all(root.join("src/ui/orders")).unwrap();
+        fs::write(root.join("src/ui/orders/mod.rs"), b"").unwrap();
+
+        let layout = discover(&root.join("src")).unwrap();
+        assert!(layout.routes[0].stream);
+        let tokens = expand_layout(&layout).to_string();
+        assert!(tokens.contains("STREAM_EVERY"));
 
         fs::remove_dir_all(&root).unwrap();
     }

@@ -1392,10 +1392,10 @@ dependencies = [
  "eframe",
  "gasket-core",
  "gasket-macros",
- "gasket-protocol",
  "serde_json",
  "tokio",
  "tower 0.4.13",
+ "tungstenite",
 ]
 
 [[package]]
