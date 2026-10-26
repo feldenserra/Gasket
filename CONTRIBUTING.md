@@ -144,7 +144,9 @@ Gasket follows idiomatic Rust as encoded by **rustfmt** and **Clippy**. Do not f
 | Tests | Unit tests live next to the code (`#[cfg(test)]`). Behavior that crosses crates belongs in integration tests under `tests/`. |
 | Dependencies | Reuse versions already in the workspace. New dependencies require a justification in the PR (size, license, maintenance). |
 
-Module layout should follow the crate you are editing. `gasket_protocol` is the internal wire contract. `gasket_core` is the Axum/WebSocket engine. `gasket_ui` is the native shell. `gasket_macros` discovers application folders. `gasket_cli` is the developer tool and does not embed an application. Reference apps live in `examples/`. An app is `src/main.rs` (`gasket_ui::app!()`), `src/api/<name>/mod.rs` (`get`), and `src/ui/<name>/mod.rs` (`show(ui, data, nav)`). A page named `index` is home. A route with `pub const STREAM_EVERY: Duration` is pushed on `/ws` at that interval while its page is visible. The page does not choose the transport. Startup, the window, and HTTP belong in the framework crates.
+Module layout should follow the crate you are editing. `gasket_core` is the Axum engine. `gasket_ui` is the native shell. `gasket_macros` discovers application folders. `gasket_protocol` is the message enum for `gasket_core::serve`'s protocol socket, not for application pages. `gasket_cli` runs an application and does not embed one. Reference apps live in `examples/`.
+
+An app is `src/main.rs` (`gasket_ui::app!()`), `src/api/<name>/mod.rs` (`get() -> Response`), and `src/ui/<name>/mod.rs` (`show(ui, data, nav)`). `index` is home. A route with `pub const STREAM_EVERY: Duration` is pushed on `/ws` at that interval while its page is the one on screen. The shell holds one socket and closes it on navigation. `get` runs for that first paint and for each push. It does not keep running after the socket closes. The page does not choose the transport. Startup and the window belong in the framework crates. See the README section "How an application is shaped."
 
 ---
 

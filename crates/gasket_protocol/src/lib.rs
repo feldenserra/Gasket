@@ -1,11 +1,8 @@
-//! Shared wire types for the Gasket state stream.
+//! Message types for `gasket_core::serve`'s protocol socket.
 //!
-//! `gasket_core` and `gasket_ui` both speak this crate. Neither defines the
-//! contract itself, and the UI crate does not depend on the engine.
-//!
-//! WebSocket text frames on `/ws` are JSON [`ClientMessage`] and
-//! [`ServerMessage`] values. Application HTTP routes may use the same types,
-//! but those routes are not the state stream.
+//! Application pages do not use this crate. A page's model is the `Response`
+//! struct in its route module. The shell's `/ws` subscription carries that
+//! route's JSON, not [`ClientMessage`] or [`ServerMessage`].
 
 use serde::{Deserialize, Serialize};
 

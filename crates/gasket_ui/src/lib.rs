@@ -29,7 +29,9 @@ pub use eframe::egui;
 /// `src/ui/<name>/mod.rs` defines `show(ui, data, nav)` for that same response.
 /// `nav.open("name")` switches pages. A page named `index` is the home
 /// dashboard. A route that defines `STREAM_EVERY` is pushed on `/ws` at that
-/// interval; the page still only draws the response.
+/// interval while that page is visible. The shell keeps one socket and
+/// closes it when you leave. `get` runs for the first paint and for each
+/// push. The page still only draws the response.
 /// A page with no matching route does not compile. `get` should return quickly;
 /// it runs on the server.
 #[macro_export]

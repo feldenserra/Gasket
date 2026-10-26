@@ -32,23 +32,30 @@ Gasket is a **unified monorepo**. The framework crates plus **stitch** are the p
 ```text
 ┌─────────────────────────────────────────────────────────────┐
 │                        gasket-cli                           │
-│         create · dev · build · package · inspect            │
+│              dev runs an application binary                 │
 └──────────────────────────┬──────────────────────────────────┘
-                           │ orchestrates an application
-           ┌───────────────┴───────────────┐
-           ▼                               ▼
-┌─────────────────────┐    gasket-protocol ┌─────────────────────────┐
-│    gasket-core      │◀──────────────────▶│       gasket-ui         │
-│  Axum HTTP +        │   state stream     │  native shell           │
-│  WebSocket engine   │      (/ws)         │  (stitch, later)        │
-└─────────────────────┘                    └─────────────────────────┘
+                           │ cargo run
+                           ▼
+┌─────────────────────────────────────────────────────────────┐
+│                     application binary                      │
+│   src/main.rs is gasket_ui::app!()                          │
+│   src/api/<name>   get() -> Response                        │
+│   src/ui/<name>    show(ui, data, nav)                      │
+└───────────────┬─────────────────────────────┬───────────────┘
+                │                             │
+                ▼                             ▼
+       ┌─────────────────┐           ┌─────────────────┐
+       │   gasket-core   │  HTTP     │    gasket-ui    │
+       │   Axum routes   │◀─────────▶│  native shell   │
+       │                 │  /ws      │  (egui for now) │
+       └─────────────────┘           └─────────────────┘
 ```
 
-- **`gasket-cli`** — The developer surface, installed as the `gasket` command. It runs an application. It does not contain one. The crates.io package is `gasket-cli` because the name `gasket` is already taken.
-- **`gasket-core`** — The backend engine. An [Axum](https://github.com/tokio-rs/axum) HTTP and WebSocket runtime. It serves the routes an application declares and reserves `/ws`.
-- **`gasket-protocol`** — The internal wire contract between the engine and the shell. A page's model is the `Response` struct in that route, not a type added here.
-- **`gasket-ui`** — The native shell. It opens the window and loads each page from its route. Today the page UI is throwaway egui. The destination is a GPU renderer that compiles **stitch** into a retained scene graph: no HTML parser, no DOM.
-- **`gasket-macros`** — Finds `src/api` and `src/ui` folders so `main.rs` stays one line. Authors do not call it directly.
+- **`gasket-cli`** — The `gasket` command. It runs an application. It does not contain one. The crates.io package is `gasket-cli` because the name `gasket` is already taken.
+- **`gasket-core`** — The Axum engine. `serve_http` serves the application's router. `serve` is a separate entry that also mounts a protocol `/ws`.
+- **`gasket-ui`** — Starts that server, opens the window, and feeds each page. Today the page UI is throwaway egui. The destination is a GPU renderer that compiles **stitch** into a retained scene graph.
+- **`gasket-macros`** — Reads `src/api` and `src/ui` at compile time so `main.rs` stays one line. Authors do not call it.
+- **`gasket-protocol`** — Message types for `gasket_core::serve`'s protocol socket. Application pages do not use it. A page's model is the `Response` struct in that route.
 
 **stitch** is the UI markup language: declarative, component-oriented, and designed to bind directly against core-streamed state. You write structure and intent; `gasket_ui` handles rendering. The current shell is not that renderer.
 
@@ -81,20 +88,54 @@ examples/hello/src/ui/pulse/mod.rs     draws that response
 examples/hello/src/api/health/mod.rs   a route with no page
 ```
 
-The window opens on `index`. Its buttons come from `GET /api/index`. Hello and About are single HTTP requests. Stream and Pulse define `STREAM_EVERY` (1 second and 5 seconds) and are pushed on `/ws` while that page is open. The pages only draw the JSON. Health is curl only:
-
-```bash
-curl http://127.0.0.1:3000/api/hello
-curl http://127.0.0.1:3000/api/health
-```
-
 The same app directly:
 
 ```bash
 cargo run -p gasket-hello
 ```
 
-`gasket new` is not built yet. When it exists, a new application will be this same layout: one `main.rs`, an `api` folder per route, and a `ui` folder per page.
+`gasket new` is not built yet. When it exists, a new application will be this same layout.
+
+---
+
+## How an application is shaped
+
+`src/main.rs` is only `gasket_ui::app!()`. Cargo needs the folders under `src/`.
+
+| Folder | Required items | What the shell does |
+| --- | --- | --- |
+| `src/api/<name>/mod.rs` | `get() -> Response` | `GET /api/<name>` |
+| `src/ui/<name>/mod.rs` | `show(ui, data, nav)` | Draws that `Response` |
+| `src/api/<name>/mod.rs` with `STREAM_EVERY` | the same `get`, plus the const | While that page is open, one `/ws` subscription pushes `get()` at that interval |
+| `src/api/<name>/mod.rs` and no `src/ui/<name>` | `get()` only | The route is callable. It has no page. |
+
+A page with no matching route does not compile. Folder names are Rust identifiers (`hello`, not `my-page`).
+
+`index` is home. The window opens there. Its buttons are data: `nav.open("hello")` uses the page name from `GET /api/index`. Back, shown by the shell on every other page, returns to `index`.
+
+```rust
+pub const STREAM_EVERY: std::time::Duration = std::time::Duration::from_secs(5);
+```
+
+That const is the whole streaming switch. It lives on the route. The page does not mention sockets. The shell keeps one WebSocket, for the page on screen, and closes it when you leave. The server stops calling `get()` when that socket closes. Opening the page again calls `get()` once for the first paint, then on each interval.
+
+`get()` should return quickly. A counter in the reference app moves only when `get()` runs. It is not a clock, and it does not reset when you leave.
+
+The reference app:
+
+| Page | Route | Transport |
+| --- | --- | --- |
+| Index | `GET /api/index` | One HTTP response. Buttons open the other pages. |
+| Hello | `GET /api/hello` | One HTTP response. Refresh asks again. |
+| About | `GET /api/about` | One HTTP response. Refresh asks again. |
+| Stream | `GET /api/stream` | `STREAM_EVERY` is 1 second, pushed on `/ws` while the page is open. |
+| Pulse | `GET /api/pulse` | `STREAM_EVERY` is 5 seconds, pushed on `/ws` while the page is open. |
+| — | `GET /api/health` | No page. |
+
+```bash
+curl http://127.0.0.1:3000/api/hello
+curl http://127.0.0.1:3000/api/health
+```
 
 ---
 
