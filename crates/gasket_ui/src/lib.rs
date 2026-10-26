@@ -11,7 +11,10 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{mpsc, Arc};
 use std::time::Duration;
 
+use axum::body::Bytes;
 use axum::extract::ws::{Message, WebSocket, WebSocketUpgrade};
+use axum::extract::DefaultBodyLimit;
+use axum::http::{HeaderMap, Method, Uri};
 use axum::routing::get;
 use axum::{Json, Router};
 
@@ -46,9 +49,125 @@ macro_rules! app {
 #[derive(Clone, Copy)]
 pub struct Route {
     pub path: &'static str,
-    pub call: fn() -> serde_json::Value,
+    pub get: fn(&Request) -> serde_json::Value,
+    pub post: Option<fn(&Request) -> serde_json::Value>,
     /// Set from the route's `STREAM_EVERY`. `None` is one HTTP response.
     pub stream_every: Option<Duration>,
+}
+
+const BODY_LIMIT: usize = 1024 * 1024;
+
+/// The HTTP request a route handler receives.
+pub struct Request {
+    pub method: String,
+    pub path: String,
+    pub query: Vec<(String, String)>,
+    pub headers: Vec<(String, String)>,
+    pub body: Vec<u8>,
+}
+
+impl Request {
+    /// A GET with no query, headers, or body. Stream pushes use this.
+    pub fn get(path: impl Into<String>) -> Self {
+        Self {
+            method: "GET".into(),
+            path: path.into(),
+            query: Vec::new(),
+            headers: Vec::new(),
+            body: Vec::new(),
+        }
+    }
+
+    /// The first query value named `name`.
+    pub fn query(&self, name: &str) -> Option<&str> {
+        self.query
+            .iter()
+            .find(|(key, _)| key == name)
+            .map(|(_, value)| value.as_str())
+    }
+
+    /// The first header named `name`, compared without case.
+    pub fn header(&self, name: &str) -> Option<&str> {
+        self.headers
+            .iter()
+            .find(|(key, _)| key.eq_ignore_ascii_case(name))
+            .map(|(_, value)| value.as_str())
+    }
+
+    /// Parse the body as JSON.
+    ///
+    /// # Errors
+    ///
+    /// Returns the serde error when the body is not that type.
+    pub fn json<T: serde::de::DeserializeOwned>(&self) -> Result<T, serde_json::Error> {
+        serde_json::from_slice(&self.body)
+    }
+}
+
+/// Listen address and the URL the window dials.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Deserialize)]
+pub struct Config {
+    pub server: ServerConfig,
+    pub client: ClientConfig,
+}
+
+/// Where `--serve` and the default mode listen.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Deserialize)]
+pub struct ServerConfig {
+    pub bind: String,
+    pub port: u16,
+}
+
+/// Where `--ui` and the default mode open pages.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Deserialize)]
+pub struct ClientConfig {
+    pub url: String,
+}
+
+impl Config {
+    /// Parse `gasket.toml` text.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the file is not the expected tables.
+    pub fn parse(text: &str) -> Result<Self, String> {
+        toml::from_str(text).map_err(|err| err.to_string())
+    }
+
+    /// `./gasket.toml`, then a file beside the executable, then `embedded`.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the chosen file does not parse.
+    pub fn load(embedded: &str) -> Result<Self, String> {
+        if let Ok(text) = std::fs::read_to_string("gasket.toml") {
+            return Self::parse(&text);
+        }
+        if let Ok(exe) = std::env::current_exe() {
+            if let Some(dir) = exe.parent() {
+                let path = dir.join("gasket.toml");
+                if let Ok(text) = std::fs::read_to_string(path) {
+                    return Self::parse(&text);
+                }
+            }
+        }
+        Self::parse(embedded)
+    }
+
+    fn listen(&self) -> Result<std::net::SocketAddr, String> {
+        let ip: std::net::IpAddr = self
+            .server
+            .bind
+            .parse()
+            .map_err(|_| format!("invalid bind address: {}", self.server.bind))?;
+        Ok(std::net::SocketAddr::new(ip, self.server.port))
+    }
+}
+
+enum RunMode {
+    Both,
+    Serve,
+    Ui,
 }
 
 /// One page discovered from `src/ui`, fed by the route of the same name.
@@ -84,37 +203,56 @@ impl Nav<'_> {
 /// Returns an error when the port argument is invalid, the listener cannot
 /// bind, or the window fails to open.
 #[doc(hidden)]
-pub fn launch(routes: Vec<Route>, pages: Vec<Page>) -> Result<(), Box<dyn std::error::Error>> {
-    let port = port_from_args()?;
-    let addr = start_core(port, routes)?;
-    println!("Gasket core listening on http://{addr}");
-    run_shell(addr, pages)?;
-    Ok(())
-}
-
-fn port_from_args() -> Result<u16, String> {
-    let mut port = 3000u16;
-    let mut args = std::env::args().skip(1);
-    while let Some(arg) = args.next() {
-        if let Some(value) = arg.strip_prefix("--port=") {
-            port = parse_port(value)?;
-        } else if arg == "--port" {
-            let value = args
-                .next()
-                .ok_or_else(|| "missing value for --port".to_string())?;
-            port = parse_port(&value)?;
-        } else {
-            return Err(format!("unknown argument: {arg}"));
+pub fn launch(
+    embedded: &str,
+    routes: Vec<Route>,
+    pages: Vec<Page>,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let mode = run_mode()?;
+    let config = Config::load(embedded)?;
+    match mode {
+        RunMode::Serve => {
+            let addr = start_core(config.listen()?, routes)?;
+            println!("Gasket core listening on http://{addr}");
+            std::thread::park();
+            Ok(())
+        }
+        RunMode::Ui => {
+            println!("Gasket window using {}", config.client.url);
+            run_shell(config.client.url, pages)?;
+            Ok(())
+        }
+        RunMode::Both => {
+            let addr = start_core(config.listen()?, routes)?;
+            println!("Gasket core listening on http://{addr}");
+            run_shell(config.client.url, pages)?;
+            Ok(())
         }
     }
-    Ok(port)
 }
 
-fn parse_port(value: &str) -> Result<u16, String> {
-    value.parse().map_err(|_| format!("invalid port: {value}"))
+fn run_mode() -> Result<RunMode, String> {
+    let mut serve = false;
+    let mut ui = false;
+    for arg in std::env::args().skip(1) {
+        match arg.as_str() {
+            "--serve" => serve = true,
+            "--ui" => ui = true,
+            other => return Err(format!("unknown argument: {other}")),
+        }
+    }
+    match (serve, ui) {
+        (true, true) => Err("use only one of --serve or --ui".into()),
+        (true, false) => Ok(RunMode::Serve),
+        (false, true) => Ok(RunMode::Ui),
+        (false, false) => Ok(RunMode::Both),
+    }
 }
 
-fn start_core(port: u16, routes: Vec<Route>) -> Result<SocketAddr, Box<dyn std::error::Error>> {
+fn start_core(
+    addr: SocketAddr,
+    routes: Vec<Route>,
+) -> Result<SocketAddr, Box<dyn std::error::Error>> {
     let (ready_tx, ready_rx) = mpsc::channel();
     std::thread::spawn(move || {
         let runtime = match tokio::runtime::Builder::new_multi_thread()
@@ -128,7 +266,7 @@ fn start_core(port: u16, routes: Vec<Route>) -> Result<SocketAddr, Box<dyn std::
             }
         };
         runtime.block_on(async move {
-            let listener = match gasket_core::bind(port).await {
+            let listener = match gasket_core::bind(addr).await {
                 Ok(listener) => listener,
                 Err(err) => {
                     let _ = ready_tx.send(Err(err.to_string()));
@@ -144,7 +282,7 @@ fn start_core(port: u16, routes: Vec<Route>) -> Result<SocketAddr, Box<dyn std::
             };
             let _ = ready_tx.send(Ok(addr));
             let app = build_router(&routes);
-            if let Err(err) = gasket_core::serve_http(listener, app).await {
+            if let Err(err) = gasket_core::serve(listener, app).await {
                 eprintln!("gasket: core stopped: {err}");
             }
         });
@@ -161,17 +299,106 @@ fn build_router(routes: &[Route]) -> Router {
     let shared: Arc<[Route]> = routes.to_vec().into();
     let router = shared.iter().fold(Router::new(), |router, route| {
         let path = route.path;
-        let call = route.call;
-        router.route(path, get(move || async move { Json(call()) }))
+        let get_fn = route.get;
+        let post_fn = route.post;
+        if let Some(post_fn) = post_fn {
+            router.route(
+                path,
+                get(move |method, uri, headers, body| {
+                    call_route(method, uri, headers, body, get_fn)
+                })
+                .post(move |method, uri, headers, body| {
+                    call_route(method, uri, headers, body, post_fn)
+                }),
+            )
+        } else {
+            router.route(
+                path,
+                get(move |method, uri, headers, body| {
+                    call_route(method, uri, headers, body, get_fn)
+                }),
+            )
+        }
     });
     let ws_routes = Arc::clone(&shared);
-    router.route(
-        "/ws",
-        get(move |upgrade: WebSocketUpgrade| {
-            let ws_routes = Arc::clone(&ws_routes);
-            async move { upgrade.on_upgrade(move |socket| push_route(socket, ws_routes)) }
-        }),
-    )
+    router
+        .route(
+            "/ws",
+            get(move |upgrade: WebSocketUpgrade| {
+                let ws_routes = Arc::clone(&ws_routes);
+                async move { upgrade.on_upgrade(move |socket| push_route(socket, ws_routes)) }
+            }),
+        )
+        .layer(DefaultBodyLimit::max(BODY_LIMIT))
+}
+
+async fn call_route(
+    method: Method,
+    uri: Uri,
+    headers: HeaderMap,
+    body: Bytes,
+    call: fn(&Request) -> serde_json::Value,
+) -> Json<serde_json::Value> {
+    Json(call(&request_from_http(method, &uri, &headers, &body)))
+}
+
+fn request_from_http(method: Method, uri: &Uri, headers: &HeaderMap, body: &[u8]) -> Request {
+    let query = uri.query().map(parse_query).unwrap_or_default();
+    let headers = headers
+        .iter()
+        .filter_map(|(name, value)| {
+            value
+                .to_str()
+                .ok()
+                .map(|value| (name.to_string(), value.to_string()))
+        })
+        .collect();
+    Request {
+        method: method.to_string(),
+        path: uri.path().to_string(),
+        query,
+        headers,
+        body: body.to_vec(),
+    }
+}
+
+fn parse_query(raw: &str) -> Vec<(String, String)> {
+    raw.split('&')
+        .filter(|pair| !pair.is_empty())
+        .map(|pair| {
+            let (key, value) = pair.split_once('=').unwrap_or((pair, ""));
+            (decode_component(key), decode_component(value))
+        })
+        .collect()
+}
+
+fn decode_component(raw: &str) -> String {
+    let bytes = raw.as_bytes();
+    let mut out = Vec::with_capacity(bytes.len());
+    let mut index = 0;
+    while index < bytes.len() {
+        match bytes[index] {
+            b'+' => {
+                out.push(b' ');
+                index += 1;
+            }
+            b'%' if index + 2 < bytes.len() => {
+                let hex = &raw[index + 1..index + 3];
+                if let Ok(byte) = u8::from_str_radix(hex, 16) {
+                    out.push(byte);
+                    index += 3;
+                } else {
+                    out.push(b'%');
+                    index += 1;
+                }
+            }
+            byte => {
+                out.push(byte);
+                index += 1;
+            }
+        }
+    }
+    String::from_utf8_lossy(&out).into_owned()
 }
 
 /// The client sends one text frame, the route path. The server replies with
@@ -190,10 +417,11 @@ async fn push_route(mut socket: WebSocket, routes: Arc<[Route]>) {
             .await;
         return;
     };
-    let call = route.call;
+    let call = route.get;
     let every = route.stream_every.filter(|every| !every.is_zero());
+    let request = Request::get(path.to_string());
     loop {
-        let json = serde_json::to_string(&call()).unwrap_or_else(|_| "{}".to_string());
+        let json = serde_json::to_string(&call(&request)).unwrap_or_else(|_| "{}".to_string());
         if socket.send(Message::Text(json)).await.is_err() {
             break;
         }
@@ -209,7 +437,8 @@ async fn push_route(mut socket: WebSocket, routes: Arc<[Route]>) {
     }
 }
 
-fn run_shell(addr: SocketAddr, pages: Vec<Page>) -> eframe::Result<()> {
+fn run_shell(url: String, pages: Vec<Page>) -> Result<(), Box<dyn std::error::Error>> {
+    let authority = authority_from_url(&url)?;
     let viewport = egui::ViewportBuilder::default().with_inner_size([480.0, 280.0]);
     eframe::run_native(
         "Gasket",
@@ -217,12 +446,28 @@ fn run_shell(addr: SocketAddr, pages: Vec<Page>) -> eframe::Result<()> {
             viewport,
             ..Default::default()
         },
-        Box::new(move |_ctx| Ok(Box::new(ShellApp::new(addr, pages)))),
-    )
+        Box::new(move |_ctx| Ok(Box::new(ShellApp::new(url, authority, pages)))),
+    )?;
+    Ok(())
 }
 
-fn http_get(addr: SocketAddr, path: &str) -> Result<Vec<u8>, String> {
-    let mut stream = std::net::TcpStream::connect(addr).map_err(|err| err.to_string())?;
+fn authority_from_url(url: &str) -> Result<String, String> {
+    let rest = url
+        .strip_prefix("http://")
+        .ok_or("client.url must start with http://")?;
+    let authority = rest.split('/').next().unwrap_or("");
+    if authority.is_empty() || authority.contains(' ') {
+        return Err(format!("invalid client.url: {url}"));
+    }
+    if authority.contains(':') {
+        Ok(authority.to_string())
+    } else {
+        Ok(format!("{authority}:80"))
+    }
+}
+
+fn http_get(authority: &str, path: &str) -> Result<Vec<u8>, String> {
+    let mut stream = std::net::TcpStream::connect(authority).map_err(|err| err.to_string())?;
     stream
         .set_read_timeout(Some(Duration::from_secs(5)))
         .map_err(|err| err.to_string())?;
@@ -230,7 +475,7 @@ fn http_get(addr: SocketAddr, path: &str) -> Result<Vec<u8>, String> {
         .set_write_timeout(Some(Duration::from_secs(5)))
         .map_err(|err| err.to_string())?;
     let request = format!(
-        "GET {path} HTTP/1.1\r\nHost: {addr}\r\nConnection: close\r\nAccept: application/json\r\n\r\n"
+        "GET {path} HTTP/1.1\r\nHost: {authority}\r\nConnection: close\r\nAccept: application/json\r\n\r\n"
     );
     stream
         .write_all(request.as_bytes())
@@ -307,7 +552,8 @@ fn header_value<'a>(head: &'a str, name: &str) -> Option<&'a str> {
 }
 
 struct ShellApp {
-    addr: SocketAddr,
+    url: String,
+    authority: String,
     pages: Vec<Page>,
     current: usize,
     body: Option<Vec<u8>>,
@@ -318,13 +564,14 @@ struct ShellApp {
 }
 
 impl ShellApp {
-    fn new(addr: SocketAddr, pages: Vec<Page>) -> Self {
+    fn new(url: String, authority: String, pages: Vec<Page>) -> Self {
         let current = pages
             .iter()
             .position(|page| page.name == "index")
             .unwrap_or(0);
         let mut app = Self {
-            addr,
+            url,
+            authority,
             pages,
             current,
             body: None,
@@ -363,20 +610,20 @@ impl ShellApp {
     }
 
     fn fetch(&mut self, path: &'static str) {
-        let addr = self.addr;
+        let authority = self.authority.clone();
         let (tx, rx) = mpsc::channel();
         std::thread::spawn(move || {
-            let _ = tx.send(http_get(addr, path));
+            let _ = tx.send(http_get(&authority, path));
         });
         self.pending = Some(rx);
     }
 
     fn watch(&mut self, path: &'static str) {
-        let addr = self.addr;
+        let authority = self.authority.clone();
         let stop = Arc::new(AtomicBool::new(false));
         let (tx, rx) = mpsc::channel();
         let flag = Arc::clone(&stop);
-        std::thread::spawn(move || watch_ws(addr, path, flag, tx));
+        std::thread::spawn(move || watch_ws(&authority, path, flag, tx));
         self.stop_stream = Some(stop);
         self.pending = Some(rx);
     }
@@ -426,7 +673,8 @@ impl eframe::App for ShellApp {
         let error = self.error.clone();
         let waiting = self.pending.is_some() && body.is_none() && error.is_none();
         let live = self.live;
-        let addr = self.addr;
+        let url = self.url.clone();
+        let authority = self.authority.clone();
         let mut destination = None;
         let mut refresh = false;
 
@@ -443,9 +691,9 @@ impl eframe::App for ShellApp {
                     }
                 });
             }
-            ui.label(format!("Core: http://{addr}"));
+            ui.label(format!("Core: {url}"));
             if live {
-                ui.label(format!("Live: ws://{addr}/ws"));
+                ui.label(format!("Live: ws://{authority}/ws"));
             }
             ui.separator();
 
@@ -483,12 +731,12 @@ impl eframe::App for ShellApp {
 }
 
 fn watch_ws(
-    addr: SocketAddr,
+    authority: &str,
     path: &str,
     stop: Arc<AtomicBool>,
     tx: mpsc::Sender<Result<Vec<u8>, String>>,
 ) {
-    let url = format!("ws://{addr}/ws");
+    let url = format!("ws://{authority}/ws");
     let mut socket = match tungstenite::connect(&url) {
         Ok((socket, _)) => socket,
         Err(err) => {
@@ -540,12 +788,13 @@ mod tests {
     fn hello_route() -> Route {
         Route {
             path: "/api/hello",
-            call: || {
+            get: |_req| {
                 serde_json::json!({
                     "message": "Hello from the Gasket reference app",
                     "status": "ok"
                 })
             },
+            post: None,
             stream_every: None,
         }
     }
@@ -581,16 +830,18 @@ mod tests {
                 .build()
                 .unwrap();
             runtime.block_on(async move {
-                let listener = gasket_core::bind(0).await.unwrap();
+                let listener = gasket_core::bind(std::net::SocketAddr::from(([127, 0, 0, 1], 0)))
+                    .await
+                    .unwrap();
                 ready_tx.send(listener.local_addr().unwrap()).unwrap();
-                gasket_core::serve_http(listener, build_router(&routes))
+                gasket_core::serve(listener, build_router(&routes))
                     .await
                     .unwrap();
             });
         });
         let addr = ready_rx.recv().unwrap();
 
-        let body = http_get(addr, "/api/hello").unwrap();
+        let body = http_get(&addr.to_string(), "/api/hello").unwrap();
         let value: serde_json::Value = serde_json::from_slice(&body).unwrap();
         assert_eq!(value["message"], "Hello from the Gasket reference app");
         assert_eq!(value["status"], "ok");
@@ -606,9 +857,11 @@ mod tests {
                 .build()
                 .unwrap();
             runtime.block_on(async move {
-                let listener = gasket_core::bind(0).await.unwrap();
+                let listener = gasket_core::bind(std::net::SocketAddr::from(([127, 0, 0, 1], 0)))
+                    .await
+                    .unwrap();
                 ready_tx.send(listener.local_addr().unwrap()).unwrap();
-                gasket_core::serve_http(listener, build_router(&routes))
+                gasket_core::serve(listener, build_router(&routes))
                     .await
                     .unwrap();
             });
@@ -631,7 +884,8 @@ mod tests {
     fn websocket_waits_for_the_route_interval() {
         let routes = vec![Route {
             path: "/api/orders",
-            call: || serde_json::json!({"ok": true}),
+            get: |_req| serde_json::json!({"ok": true}),
+            post: None,
             stream_every: Some(Duration::from_millis(80)),
         }];
         let (ready_tx, ready_rx) = mpsc::channel();
@@ -641,9 +895,11 @@ mod tests {
                 .build()
                 .unwrap();
             runtime.block_on(async move {
-                let listener = gasket_core::bind(0).await.unwrap();
+                let listener = gasket_core::bind(std::net::SocketAddr::from(([127, 0, 0, 1], 0)))
+                    .await
+                    .unwrap();
                 ready_tx.send(listener.local_addr().unwrap()).unwrap();
-                gasket_core::serve_http(listener, build_router(&routes))
+                gasket_core::serve(listener, build_router(&routes))
                     .await
                     .unwrap();
             });
@@ -665,5 +921,78 @@ mod tests {
             elapsed < Duration::from_millis(500),
             "interval ignored the route and waited {elapsed:?}"
         );
+    }
+
+    #[test]
+    fn config_parses_bind_and_client_url() {
+        let text = "[server]\nbind = \"0.0.0.0\"\nport = 8080\n\n[client]\nurl = \"http://example.com:8080\"\n";
+        let config = Config::parse(text).unwrap();
+        assert_eq!(config.server.bind, "0.0.0.0");
+        assert_eq!(config.server.port, 8080);
+        assert_eq!(config.client.url, "http://example.com:8080");
+        assert_eq!(
+            config.listen().unwrap(),
+            "0.0.0.0:8080".parse::<std::net::SocketAddr>().unwrap()
+        );
+        assert!(Config::parse("bind = \"nope\"").is_err());
+    }
+
+    #[tokio::test]
+    async fn get_reads_query_and_post_reads_json() {
+        let route = Route {
+            path: "/api/echo",
+            get: |req| serde_json::json!({ "name": req.query("name") }),
+            post: Some(|req| {
+                req.json::<serde_json::Value>()
+                    .unwrap_or_else(|_| serde_json::json!({"status": "bad json"}))
+            }),
+            stream_every: None,
+        };
+        let app = build_router(&[route]);
+        let get_response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri("/api/echo?name=Ada")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        let get_bytes = axum::body::to_bytes(get_response.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let get_value: serde_json::Value = serde_json::from_slice(&get_bytes).unwrap();
+        assert_eq!(get_value["name"], "Ada");
+
+        let post_response = app
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/echo")
+                    .header("content-type", "application/json")
+                    .body(Body::from(r#"{"message":"hi"}"#))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert!(post_response.status().is_success());
+        let post_bytes = axum::body::to_bytes(post_response.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let post_value: serde_json::Value = serde_json::from_slice(&post_bytes).unwrap();
+        assert_eq!(post_value["message"], "hi");
+    }
+
+    #[test]
+    fn serve_answers_http_without_a_window() {
+        let addr = start_core(
+            std::net::SocketAddr::from(([127, 0, 0, 1], 0)),
+            vec![hello_route()],
+        )
+        .unwrap();
+        let body = http_get(&addr.to_string(), "/api/hello").unwrap();
+        let value: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(value["status"], "ok");
     }
 }

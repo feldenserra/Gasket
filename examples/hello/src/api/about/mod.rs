@@ -4,10 +4,13 @@ pub struct Response {
     pub body: String,
 }
 
-pub fn get() -> Response {
+pub fn get(req: &gasket_ui::Request) -> Response {
+    let name = req.query("name").unwrap_or("there");
     Response {
         title: "About".into(),
-        body: "This route has no STREAM_EVERY, so opening the page is one HTTP GET.".into(),
+        body: format!(
+            "Hello, {name}. This route has no STREAM_EVERY, so opening the page is one HTTP GET."
+        ),
     }
 }
 
@@ -17,8 +20,11 @@ mod tests {
 
     #[test]
     fn about_is_a_single_snapshot() {
-        let response = get();
+        let response = get(&gasket_ui::Request::get("/api/about"));
         assert_eq!(response.title, "About");
-        assert!(response.body.contains("STREAM_EVERY"));
+        assert!(response.body.contains("Hello, there"));
+        let mut named = gasket_ui::Request::get("/api/about");
+        named.query.push(("name".into(), "Ada".into()));
+        assert!(get(&named).body.contains("Hello, Ada"));
     }
 }

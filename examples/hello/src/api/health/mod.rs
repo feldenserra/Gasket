@@ -3,7 +3,7 @@ pub struct Response {
     pub status: String,
 }
 
-pub fn get() -> Response {
+pub fn get(_req: &gasket_ui::Request) -> Response {
     Response {
         status: "ok".into(),
     }
@@ -15,6 +15,6 @@ mod tests {
 
     #[test]
     fn health_is_ok() {
-        assert_eq!(get().status, "ok");
+        assert_eq!(get(&gasket_ui::Request::get("/api/health")).status, "ok");
     }
 }

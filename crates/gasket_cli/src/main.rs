@@ -13,12 +13,12 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Commands {
-    /// Run the reference app in this repository.
-    Dev {
-        /// Port the reference app binds
-        #[arg(short, long, default_value_t = 3000)]
-        port: u16,
-    },
+    /// Run the server and the window together.
+    Dev,
+    /// Run the server only. The listen address comes from gasket.toml.
+    Serve,
+    /// Run the window only. It dials the client URL in gasket.toml.
+    Ui,
 }
 
 fn main() {
@@ -30,21 +30,41 @@ fn main() {
 }
 
 fn run(cli: Cli) -> Result<(), Box<dyn std::error::Error>> {
-    match cli.command {
-        Commands::Dev { port } => {
-            let root = workspace_root().ok_or("run gasket dev from the Gasket repository")?;
-            let status = Command::new("cargo")
-                .args([
-                    "run",
-                    "-p",
-                    "gasket-hello",
-                    "--",
-                    "--port",
-                    &port.to_string(),
-                ])
-                .current_dir(root)
-                .status()?;
-            std::process::exit(status.code().unwrap_or(1));
+    let flag: &[&str] = match cli.command {
+        Commands::Dev => &[],
+        Commands::Serve => &["--serve"],
+        Commands::Ui => &["--ui"],
+    };
+    let status = if let Some(package) = app_package() {
+        Command::new("cargo")
+            .arg("run")
+            .arg("--manifest-path")
+            .arg(package.join("Cargo.toml"))
+            .arg("--")
+            .args(flag)
+            .status()?
+    } else if let Some(root) = workspace_root() {
+        Command::new("cargo")
+            .args(["run", "-p", "gasket-hello", "--"])
+            .args(flag)
+            .current_dir(root)
+            .status()?
+    } else {
+        return Err(
+            "run gasket from an application with gasket.toml, or from the Gasket repository".into(),
+        );
+    };
+    std::process::exit(status.code().unwrap_or(1));
+}
+
+fn app_package() -> Option<PathBuf> {
+    let mut dir = std::env::current_dir().ok()?;
+    loop {
+        if dir.join("gasket.toml").is_file() && dir.join("Cargo.toml").is_file() {
+            return Some(dir);
+        }
+        if !dir.pop() {
+            return None;
         }
     }
 }

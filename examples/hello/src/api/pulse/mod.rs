@@ -11,7 +11,7 @@ pub struct Response {
     pub count: u64,
 }
 
-pub fn get() -> Response {
+pub fn get(_req: &gasket_ui::Request) -> Response {
     let count = HITS.fetch_add(1, Ordering::Relaxed) + 1;
     Response {
         message: "every 5 seconds".into(),
@@ -26,6 +26,6 @@ mod tests {
     #[test]
     fn pulse_is_slower_than_a_second() {
         assert_eq!(STREAM_EVERY, Duration::from_secs(5));
-        assert!(get().count >= 1);
+        assert!(get(&gasket_ui::Request::get("/api/pulse")).count >= 1);
     }
 }

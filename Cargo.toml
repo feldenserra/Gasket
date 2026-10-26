@@ -3,7 +3,6 @@ members = [
     "crates/gasket_cli",
     "crates/gasket_core",
     "crates/gasket_macros",
-    "crates/gasket_protocol",
     "crates/gasket_ui",
     "examples/hello",
 ]
@@ -21,7 +20,6 @@ clap = { version = "4", features = ["derive"] }
 eframe = "0.29"
 gasket-core = { path = "crates/gasket_core" }
 gasket-macros = { path = "crates/gasket_macros" }
-gasket-protocol = { path = "crates/gasket_protocol" }
 gasket-ui = { path = "crates/gasket_ui" }
 proc-macro2 = "1"
 quote = "1"
@@ -29,4 +27,5 @@ serde = { version = "1", features = ["derive"] }
 syn = "2"
 serde_json = "1"
 tokio = { version = "1", features = ["macros", "net", "rt-multi-thread", "sync", "time"] }
+toml = "0.8"
 tungstenite = { version = "0.24", default-features = false, features = ["handshake"] }

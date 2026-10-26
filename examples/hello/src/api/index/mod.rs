@@ -11,7 +11,7 @@ pub struct Response {
     pub note: String,
 }
 
-pub fn get() -> Response {
+pub fn get(_req: &gasket_ui::Request) -> Response {
     Response {
         title: "Gasket".into(),
         links: vec![
@@ -42,7 +42,7 @@ mod tests {
 
     #[test]
     fn dashboard_lists_the_other_pages() {
-        let response = get();
+        let response = get(&gasket_ui::Request::get("/api/index"));
         assert_eq!(response.title, "Gasket");
         assert_eq!(response.links.len(), 4);
         assert_eq!(response.links[0].page, "hello");

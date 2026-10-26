@@ -13,7 +13,7 @@ pub struct Response {
     pub count: u64,
 }
 
-pub fn get() -> Response {
+pub fn get(_req: &gasket_ui::Request) -> Response {
     let count = HITS.fetch_add(1, Ordering::Relaxed) + 1;
     Response {
         message: "every second".into(),
@@ -28,8 +28,9 @@ mod tests {
     #[test]
     fn each_call_advances_the_count() {
         assert_eq!(STREAM_EVERY, Duration::from_secs(1));
-        let first = get().count;
-        let second = get().count;
+        let req = gasket_ui::Request::get("/api/stream");
+        let first = get(&req).count;
+        let second = get(&req).count;
         assert!(second > first);
     }
 }

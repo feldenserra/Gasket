@@ -52,10 +52,9 @@ Gasket is a **unified monorepo**. The framework crates plus **stitch** are the p
 ```
 
 - **`gasket-cli`** — The `gasket` command. It runs an application. It does not contain one. The crates.io package is `gasket-cli` because the name `gasket` is already taken.
-- **`gasket-core`** — The Axum engine. `serve_http` serves the application's router. `serve` is a separate entry that also mounts a protocol `/ws`.
+- **`gasket-core`** — The Axum engine. It serves the router the shell built.
 - **`gasket-ui`** — Starts that server, opens the window, and feeds each page. Today the page UI is throwaway egui. The destination is a GPU renderer that compiles **stitch** into a retained scene graph.
 - **`gasket-macros`** — Reads `src/api` and `src/ui` at compile time so `main.rs` stays one line. Authors do not call it.
-- **`gasket-protocol`** — Message types for `gasket_core::serve`'s protocol socket. Application pages do not use it. A page's model is the `Response` struct in that route.
 
 **stitch** is the UI markup language: declarative, component-oriented, and designed to bind directly against core-streamed state. You write structure and intent; `gasket_ui` handles rendering. The current shell is not that renderer.
 
@@ -104,7 +103,7 @@ cargo run -p gasket-hello
 
 | Folder | Required items | What the shell does |
 | --- | --- | --- |
-| `src/api/<name>/mod.rs` | `get() -> Response` | `GET /api/<name>` |
+| `src/api/<name>/mod.rs` | `get(req) -> Response`, optional `post(req)` | `GET` and, when `post` exists, `POST /api/<name>` |
 | `src/ui/<name>/mod.rs` | `show(ui, data, nav)` | Draws that `Response` |
 | `src/api/<name>/mod.rs` with `STREAM_EVERY` | the same `get`, plus the const | While that page is open, one `/ws` subscription pushes `get()` at that interval |
 | `src/api/<name>/mod.rs` and no `src/ui/<name>` | `get()` only | The route is callable. It has no page. |
@@ -117,7 +116,28 @@ A page with no matching route does not compile. Folder names are Rust identifier
 pub const STREAM_EVERY: std::time::Duration = std::time::Duration::from_secs(5);
 ```
 
-That const is the whole streaming switch. It lives on the route. The page does not mention sockets. The shell keeps one WebSocket, for the page on screen, and closes it when you leave. The server stops calling `get()` when that socket closes. Opening the page again calls `get()` once for the first paint, then on each interval.
+That const is the whole streaming switch. It lives on the route. The page does not mention sockets. `get` and `post` receive a `gasket_ui::Request` with method, path, query, headers, and body. The shell keeps one WebSocket, for the page on screen, and closes it when you leave. The server stops calling `get()` when that socket closes. Opening the page again calls `get()` once for the first paint, then on each interval.
+
+`gasket.toml` next to the app says where to listen and where the window dials:
+
+```toml
+[server]
+bind = "127.0.0.1"
+port = 3000
+
+[client]
+url = "http://127.0.0.1:3000"
+```
+
+A host sets `bind` to `0.0.0.0` and `url` to the public `http://` address. TLS stays in front of the process.
+
+```bash
+gasket dev     # server and window
+gasket serve   # server only
+gasket ui      # window only, using client.url
+```
+
+The app binary accepts the same split as `--serve` and `--ui`. With neither flag it runs both. The file is read from the working directory, then from beside the executable, then from the copy compiled into the app.
 
 `get()` should return quickly. A counter in the reference app moves only when `get()` runs. It is not a clock, and it does not reset when you leave.
 
@@ -147,7 +167,6 @@ gasket/
 │   ├── gasket_cli/          # `gasket` binary, package `gasket-cli`
 │   ├── gasket_core/         # Axum / WebSocket engine, package `gasket-core`
 │   ├── gasket_macros/       # Folder discovery, package `gasket-macros`
-│   ├── gasket_protocol/     # Internal wire messages, package `gasket-protocol`
 │   └── gasket_ui/           # Native shell, package `gasket-ui`
 ├── examples/
 │   └── hello/               # Reference app: src/main.rs, src/api, src/ui

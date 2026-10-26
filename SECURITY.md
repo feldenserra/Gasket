@@ -30,7 +30,7 @@ If you cannot use GitHub advisories, open a private contact request against the 
 
 ### What to include
 
-- Affected crate (`gasket_cli`, `gasket_core`, `gasket_macros`, `gasket_protocol`, `gasket_ui`, stitch toolchain) and git commit or version
+- Affected crate (`gasket_cli`, `gasket_core`, `gasket_macros`, `gasket_ui`, stitch toolchain) and git commit or version
 - Description of the issue and its security impact (crash, sandbox escape, RCE, data leak, privilege escalation, protocol spoofing, etc.)
 - Reproduction steps or a minimal proof-of-concept you are willing to share privately
 - Any known in-the-wild exploitation

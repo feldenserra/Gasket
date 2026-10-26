@@ -12,8 +12,10 @@ axum.workspace = true
 eframe.workspace = true
 gasket-core.workspace = true
 gasket-macros.workspace = true
+serde.workspace = true
 serde_json.workspace = true
 tokio.workspace = true
+toml.workspace = true
 tungstenite.workspace = true
 
 [dev-dependencies]

@@ -12,6 +12,7 @@ use std::path::Path;
 struct RouteDecl {
     name: String,
     stream: bool,
+    post: bool,
 }
 
 #[derive(Debug)]
@@ -45,8 +46,12 @@ fn discover(src: &Path) -> Result<Layout, String> {
     let routes: Vec<RouteDecl> = modules(&src.join("api"), "src/api")?
         .into_iter()
         .map(|name| {
-            let stream = declares_stream(&src.join("api").join(&name).join("mod.rs"));
-            RouteDecl { name, stream }
+            let file = src.join("api").join(&name).join("mod.rs");
+            RouteDecl {
+                name,
+                stream: declares_stream(&file),
+                post: declares_fn(&file, "post"),
+            }
         })
         .collect();
     let pages = modules(&src.join("ui"), "src/ui")?;
@@ -62,12 +67,21 @@ fn discover(src: &Path) -> Result<Layout, String> {
 
 /// A route streams when its module defines `STREAM_EVERY`.
 fn declares_stream(path: &Path) -> bool {
+    source_has(path, "const STREAM_EVERY")
+}
+
+/// A route accepts POST when its module defines `fn post(`.
+fn declares_fn(path: &Path, name: &str) -> bool {
+    source_has(path, &format!("fn {name}("))
+}
+
+fn source_has(path: &Path, needle: &str) -> bool {
     let Ok(source) = fs::read_to_string(path) else {
         return false;
     };
     source.lines().any(|line| {
         let code = line.split("//").next().unwrap_or("");
-        code.contains("const STREAM_EVERY")
+        code.contains(needle)
     })
 }
 
@@ -113,11 +127,25 @@ fn expand_layout(layout: &Layout) -> TokenStream2 {
         let module = format_ident!("{}", route.name);
         let message = format!("api/{} must serialize", route.name);
         quote! {
-            pub fn #ident() -> gasket_ui::serde_json::Value {
-                gasket_ui::serde_json::to_value(super::api::#module::get()).expect(#message)
+            pub fn #ident(req: &gasket_ui::Request) -> gasket_ui::serde_json::Value {
+                gasket_ui::serde_json::to_value(super::api::#module::get(req)).expect(#message)
             }
         }
     });
+    let post_calls = layout
+        .routes
+        .iter()
+        .filter(|route| route.post)
+        .map(|route| {
+            let ident = format_ident!("post_{}", route.name);
+            let module = format_ident!("{}", route.name);
+            let message = format!("api/{} post must serialize", route.name);
+            quote! {
+                pub fn #ident(req: &gasket_ui::Request) -> gasket_ui::serde_json::Value {
+                    gasket_ui::serde_json::to_value(super::api::#module::post(req)).expect(#message)
+                }
+            }
+        });
     let paints = layout.pages.iter().map(|name| {
         let ident = format_ident!("paint_{name}");
         let module = format_ident!("{name}");
@@ -141,10 +169,17 @@ fn expand_layout(layout: &Layout) -> TokenStream2 {
         } else {
             quote! { None }
         };
+        let post = if route.post {
+            let post_fn = format_ident!("post_{}", route.name);
+            quote! { Some(__gasket::#post_fn) }
+        } else {
+            quote! { None }
+        };
         quote! {
             gasket_ui::Route {
                 path: #path,
-                call: __gasket::#call,
+                get: __gasket::#call,
+                post: #post,
                 stream_every: #every,
             }
         }
@@ -197,13 +232,15 @@ fn expand_layout(layout: &Layout) -> TokenStream2 {
 
         mod __gasket {
             #(#calls)*
+            #(#post_calls)*
             #(#paints)*
         }
 
         fn main() {
+            let embedded = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/gasket.toml"));
             let routes = vec![#(#route_values),*];
             let pages = vec![#(#page_values),*];
-            if let Err(err) = gasket_ui::launch(routes, pages) {
+            if let Err(err) = gasket_ui::launch(embedded, routes, pages) {
                 eprintln!("gasket: {err}");
                 std::process::exit(1);
             }
