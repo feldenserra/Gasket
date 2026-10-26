@@ -94,11 +94,11 @@ impl Request {
             .map(|(_, value)| value.as_str())
     }
 
-    /// Parse the body as JSON.
+    /// Parse the body as JSON into `T`.
     ///
     /// # Errors
     ///
-    /// Returns the serde error when the body is not that type.
+    /// Returns an error when the body is not that type.
     pub fn json<T: serde::de::DeserializeOwned>(&self) -> Result<T, serde_json::Error> {
         serde_json::from_slice(&self.body)
     }
@@ -171,7 +171,7 @@ enum RunMode {
 }
 
 #[doc(hidden)]
-pub type Paint = Box<dyn for<'a> FnMut(&mut egui::Ui, &[u8], &mut Nav<'a>)>;
+pub type Paint = Box<dyn for<'a> FnMut(&mut egui::Ui, &[u8], &mut Nav<'a>, u64)>;
 
 /// One page discovered from `src/ui`, fed by the route of the same name.
 ///
@@ -204,8 +204,10 @@ impl Nav<'_> {
     }
 
     /// POST `body` to this page's route. The next `show` receives the reply.
-    pub fn post(&mut self, body: serde_json::Value) {
-        *self.post = Some(body.to_string().into_bytes());
+    pub fn submit<T: serde::Serialize>(&mut self, body: &T) {
+        if let Ok(bytes) = serde_json::to_vec(body) {
+            *self.post = Some(bytes);
+        }
     }
 }
 
@@ -589,6 +591,7 @@ struct ShellApp {
     pending: Option<mpsc::Receiver<Result<Vec<u8>, String>>>,
     live: bool,
     stop_stream: Option<Arc<AtomicBool>>,
+    visits: Vec<u64>,
 }
 
 impl ShellApp {
@@ -597,6 +600,7 @@ impl ShellApp {
             .iter()
             .position(|page| page.name == "index")
             .unwrap_or(0);
+        let visits = vec![0; pages.len()];
         let mut app = Self {
             url,
             authority,
@@ -607,6 +611,7 @@ impl ShellApp {
             pending: None,
             live: false,
             stop_stream: None,
+            visits,
         };
         app.refresh();
         app
@@ -614,6 +619,9 @@ impl ShellApp {
 
     fn go(&mut self, index: usize) {
         self.current = index;
+        if let Some(visit) = self.visits.get_mut(index) {
+            *visit = visit.saturating_add(1);
+        }
         self.body = None;
         self.error = None;
         self.refresh();
@@ -718,6 +726,7 @@ impl eframe::App for ShellApp {
         let live = self.live;
         let url = self.url.clone();
         let authority = self.authority.clone();
+        let visit = self.visits.get(self.current).copied().unwrap_or(0);
         let mut destination = None;
         let mut refresh = false;
         let mut posted = None;
@@ -752,7 +761,7 @@ impl eframe::App for ShellApp {
                         target: &mut destination,
                         post: &mut posted,
                     };
-                    (page.paint)(ui, body, &mut nav);
+                    (page.paint)(ui, body, &mut nav, visit);
                 }
             } else if names.is_empty() {
                 ui.label("This app has no pages.");

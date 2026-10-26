@@ -189,7 +189,12 @@ fn expand_layout(layout: &Layout) -> TokenStream2 {
                 stream_every: #every,
                 paint: Box::new({
                     let mut state = ui::#module::State::new();
-                    move |ui, bytes, nav| {
+                    let mut seen = 0u64;
+                    move |ui, bytes, nav, visit| {
+                        if seen != visit {
+                            state = ui::#module::State::new();
+                            seen = visit;
+                        }
                         match gasket_ui::serde_json::from_slice::<api::#module::Response>(bytes) {
                             Ok(data) => state.show(ui, &data, nav),
                             Err(err) => {

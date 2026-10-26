@@ -76,10 +76,10 @@ cargo run -p gasket-cli -- dev
 examples/hello/src/main.rs             gasket_ui::app!();
 examples/hello/src/api/index/mod.rs    dashboard JSON
 examples/hello/src/ui/index/mod.rs     home page, buttons open other pages
-examples/hello/src/api/hello/mod.rs    GET snapshot and POST a name
-examples/hello/src/ui/hello/mod.rs     text box, submit, draws the reply
-examples/hello/src/api/about/mod.rs    second HTTP snapshot
-examples/hello/src/ui/about/mod.rs     draws that snapshot
+examples/hello/src/api/hello/mod.rs    owns Wish, read with req.json
+examples/hello/src/ui/hello/mod.rs     imports Wish once, nav.submit
+examples/hello/src/api/about/mod.rs    owns Note, read with req.json
+examples/hello/src/ui/about/mod.rs     imports Note once, nav.submit
 examples/hello/src/api/stream/mod.rs   STREAM_EVERY of 1 second
 examples/hello/src/ui/stream/mod.rs    draws that response
 examples/hello/src/api/pulse/mod.rs    STREAM_EVERY of 5 seconds
@@ -141,13 +141,15 @@ The app binary accepts the same split as `--serve` and `--ui`. With neither flag
 
 `get()` should return quickly. A counter in the reference app moves only when `get()` runs. It is not a clock, and it does not reset when you leave.
 
+A page's `State` does reset when you leave that page and open it again. The shell does that. Refresh and Submit keep what you typed.
+
 The reference app:
 
 | Page | Route | Transport |
 | --- | --- | --- |
 | Index | `GET /api/index` | One HTTP response. Buttons open the other pages. |
-| Hello | `GET` / `POST /api/hello` | GET opens the page. Submit POSTs a name and shows the reply. |
-| About | `GET /api/about` | One HTTP response. Refresh asks again. |
+| Hello | `GET` / `POST /api/hello` | The route owns `Wish`. The page imports it once and calls `nav.submit`. The route reads `req.json::<Wish>`. |
+| About | `GET` / `POST /api/about` | GET still reads `?name=`. The route owns `Note`. The page imports it once and calls the same `nav.submit`. |
 | Stream | `GET /api/stream` | `STREAM_EVERY` is 1 second, pushed on `/ws` while the page is open. |
 | Pulse | `GET /api/pulse` | `STREAM_EVERY` is 5 seconds, pushed on `/ws` while the page is open. |
 | — | `GET /api/health` | No page. |

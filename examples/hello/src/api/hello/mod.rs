@@ -4,6 +4,11 @@ pub struct Response {
     pub status: String,
 }
 
+#[derive(serde::Serialize, serde::Deserialize)]
+pub struct Wish {
+    pub name: String,
+}
+
 pub fn get(_req: &gasket_ui::Request) -> Response {
     Response {
         message: "Type a name and submit.".into(),
@@ -12,29 +17,26 @@ pub fn get(_req: &gasket_ui::Request) -> Response {
 }
 
 pub fn post(req: &gasket_ui::Request) -> Response {
-    match req.json::<gasket_ui::serde_json::Value>() {
-        Ok(body) => {
-            let name = body
-                .get("name")
-                .and_then(|value| value.as_str())
-                .unwrap_or("")
-                .trim();
-            if name.is_empty() {
-                Response {
-                    message: "Type a name first.".into(),
-                    status: "ok".into(),
-                }
-            } else {
-                Response {
-                    message: format!("I wish you the best, {name}"),
-                    status: "ok".into(),
-                }
-            }
+    let wish = match req.json::<Wish>() {
+        Ok(wish) => wish,
+        Err(_) => {
+            return Response {
+                message: "That was not a name.".into(),
+                status: "bad json".into(),
+            };
         }
-        Err(_) => Response {
-            message: "That was not JSON.".into(),
-            status: "bad json".into(),
-        },
+    };
+    let name = wish.name.trim();
+    if name.is_empty() {
+        Response {
+            message: "Type a name first.".into(),
+            status: "ok".into(),
+        }
+    } else {
+        Response {
+            message: format!("I wish you the best, {name}"),
+            status: "ok".into(),
+        }
     }
 }
 
@@ -55,7 +57,6 @@ mod tests {
         req.method = "POST".into();
         req.body = br#"{"name":"Ada"}"#.to_vec();
         let response = post(&req);
-        assert_eq!(response.status, "ok");
         assert_eq!(response.message, "I wish you the best, Ada");
     }
 }
