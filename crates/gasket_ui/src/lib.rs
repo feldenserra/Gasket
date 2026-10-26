@@ -5,7 +5,6 @@
 //! server, opens the window, and fetches the route. egui is the placeholder
 //! page UI until stitch replaces it.
 
-use std::collections::HashMap;
 use std::io::{Read, Write};
 use std::net::SocketAddr;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -171,23 +170,28 @@ enum RunMode {
     Ui,
 }
 
-/// One page discovered from `src/ui`, fed by the route of the same name.
 #[doc(hidden)]
-#[derive(Clone, Copy)]
+pub type Paint = Box<dyn for<'a> FnMut(&mut egui::Ui, &[u8], &mut Nav<'a>)>;
+
+/// One page discovered from `src/ui`, fed by the route of the same name.
+///
+/// `paint` closes over that page's own `State`. The shell does not store
+/// form fields.
+#[doc(hidden)]
 pub struct Page {
     pub name: &'static str,
     pub path: &'static str,
     /// Copied from the paired route. The page function does not see it.
     pub stream_every: Option<Duration>,
-    pub paint: fn(&mut egui::Ui, &[u8], &mut Nav<'_>),
+    pub paint: Paint,
 }
 
-/// Lets a page open another page, keep a text field, or POST JSON to its route.
+/// Lets a page open another page or POST JSON to its own route.
+///
+/// Values the page wants to keep live on its `State`, not here.
 pub struct Nav<'a> {
-    page: &'static str,
     names: &'a [&'static str],
     target: &'a mut Option<usize>,
-    fields: &'a mut HashMap<String, String>,
     post: &'a mut Option<Vec<u8>>,
 }
 
@@ -197,13 +201,6 @@ impl Nav<'_> {
         if let Some(index) = self.names.iter().position(|name| *name == page) {
             *self.target = Some(index);
         }
-    }
-
-    /// A text value that survives redraws. Use with `ui.text_edit_singleline`.
-    pub fn field(&mut self, name: &str) -> &mut String {
-        self.fields
-            .entry(format!("{}:{name}", self.page))
-            .or_default()
     }
 
     /// POST `body` to this page's route. The next `show` receives the reply.
@@ -592,7 +589,6 @@ struct ShellApp {
     pending: Option<mpsc::Receiver<Result<Vec<u8>, String>>>,
     live: bool,
     stop_stream: Option<Arc<AtomicBool>>,
-    fields: HashMap<String, String>,
 }
 
 impl ShellApp {
@@ -611,7 +607,6 @@ impl ShellApp {
             pending: None,
             live: false,
             stop_stream: None,
-            fields: HashMap::new(),
         };
         app.refresh();
         app
@@ -629,16 +624,20 @@ impl ShellApp {
             stop.store(true, Ordering::Relaxed);
         }
         self.pending = None;
-        let Some(page) = self.pages.get(self.current).copied() else {
+        let Some((path, stream_every)) = self
+            .pages
+            .get(self.current)
+            .map(|page| (page.path, page.stream_every))
+        else {
             self.live = false;
             return;
         };
         self.error = None;
-        self.live = page.stream_every.is_some();
+        self.live = stream_every.is_some();
         if self.live {
-            self.watch(page.path);
+            self.watch(path);
         } else {
-            self.fetch(page.path);
+            self.fetch(path);
         }
     }
 
@@ -713,7 +712,6 @@ impl eframe::App for ShellApp {
         let names: Vec<&'static str> = self.pages.iter().map(|page| page.name).collect();
         let has_index = names.contains(&"index");
         let current_name = names.get(self.current).copied();
-        let page = self.pages.get(self.current).copied();
         let body = self.body.clone();
         let error = self.error.clone();
         let waiting = self.pending.is_some() && body.is_none() && error.is_none();
@@ -747,15 +745,15 @@ impl eframe::App for ShellApp {
                 ui.label("Loading...");
             } else if let Some(err) = &error {
                 ui.label(err);
-            } else if let (Some(page), Some(body)) = (page, body.as_deref()) {
-                let mut nav = Nav {
-                    page: page.name,
-                    names: &names,
-                    target: &mut destination,
-                    fields: &mut self.fields,
-                    post: &mut posted,
-                };
-                (page.paint)(ui, body, &mut nav);
+            } else if let Some(body) = body.as_deref() {
+                if let Some(page) = self.pages.get_mut(self.current) {
+                    let mut nav = Nav {
+                        names: &names,
+                        target: &mut destination,
+                        post: &mut posted,
+                    };
+                    (page.paint)(ui, body, &mut nav);
+                }
             } else if names.is_empty() {
                 ui.label("This app has no pages.");
             }

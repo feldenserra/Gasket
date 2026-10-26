@@ -146,20 +146,6 @@ fn expand_layout(layout: &Layout) -> TokenStream2 {
                 }
             }
         });
-    let paints = layout.pages.iter().map(|name| {
-        let ident = format_ident!("paint_{name}");
-        let module = format_ident!("{name}");
-        quote! {
-            pub fn #ident(ui: &mut gasket_ui::egui::Ui, bytes: &[u8], nav: &mut gasket_ui::Nav) {
-                match gasket_ui::serde_json::from_slice::<super::api::#module::Response>(bytes) {
-                    Ok(data) => super::ui::#module::show(ui, &data, nav),
-                    Err(err) => {
-                        ui.label(err.to_string());
-                    }
-                }
-            }
-        }
-    });
     let route_values = layout.routes.iter().map(|route| {
         let path = format!("/api/{}", route.name);
         let call = format_ident!("call_{}", route.name);
@@ -186,7 +172,6 @@ fn expand_layout(layout: &Layout) -> TokenStream2 {
     });
     let page_values = layout.pages.iter().map(|name| {
         let path = format!("/api/{name}");
-        let paint = format_ident!("paint_{name}");
         let module = format_ident!("{name}");
         let every = if layout
             .routes
@@ -202,7 +187,17 @@ fn expand_layout(layout: &Layout) -> TokenStream2 {
                 name: #name,
                 path: #path,
                 stream_every: #every,
-                paint: __gasket::#paint,
+                paint: Box::new({
+                    let mut state = ui::#module::State::new();
+                    move |ui, bytes, nav| {
+                        match gasket_ui::serde_json::from_slice::<api::#module::Response>(bytes) {
+                            Ok(data) => state.show(ui, &data, nav),
+                            Err(err) => {
+                                ui.label(err.to_string());
+                            }
+                        }
+                    }
+                }),
             }
         }
     });
@@ -233,7 +228,6 @@ fn expand_layout(layout: &Layout) -> TokenStream2 {
         mod __gasket {
             #(#calls)*
             #(#post_calls)*
-            #(#paints)*
         }
 
         fn main() {
