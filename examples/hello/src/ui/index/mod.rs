@@ -20,5 +20,8 @@ impl State {
         }
         ui.add_space(8.0);
         ui.label(&data.note);
+        if ui.button("Refresh").clicked() {
+            nav.refresh();
+        }
     }
 }

@@ -30,7 +30,8 @@ pub use eframe::egui;
 ///
 /// Put this alone in `main.rs`. `src/api/<name>/mod.rs` defines `get() -> Response`.
 /// `src/ui/<name>/mod.rs` defines `show(ui, data, nav)` for that same response.
-/// `nav.open("name")` switches pages. A page named `index` is the home
+/// `nav.open("name")` switches pages. `nav.refresh()` fetches this page's
+/// route again and keeps what the page typed. A page named `index` is the home
 /// dashboard. A route that defines `STREAM_EVERY` is pushed on `/ws` at that
 /// interval while that page is visible. The shell keeps one socket and
 /// closes it when you leave. `get` runs for the first paint and for each
@@ -186,13 +187,14 @@ pub struct Page {
     pub paint: Paint,
 }
 
-/// Lets a page open another page or POST JSON to its own route.
+/// Lets a page open another page, POST JSON to its own route, or fetch that route again.
 ///
 /// Values the page wants to keep live on its `State`, not here.
 pub struct Nav<'a> {
     names: &'a [&'static str],
     target: &'a mut Option<usize>,
     post: &'a mut Option<Vec<u8>>,
+    refresh: &'a mut bool,
 }
 
 impl Nav<'_> {
@@ -208,6 +210,12 @@ impl Nav<'_> {
         if let Ok(bytes) = serde_json::to_vec(body) {
             *self.post = Some(bytes);
         }
+    }
+
+    /// Fetch this page's route again. The next `show` receives the reply.
+    /// Typed `State` stays. Leaving the page is what clears it.
+    pub fn refresh(&mut self) {
+        *self.refresh = true;
     }
 }
 
@@ -760,16 +768,12 @@ impl eframe::App for ShellApp {
                         names: &names,
                         target: &mut destination,
                         post: &mut posted,
+                        refresh: &mut refresh,
                     };
                     (page.paint)(ui, body, &mut nav, visit);
                 }
             } else if names.is_empty() {
                 ui.label("This app has no pages.");
-            }
-
-            ui.add_space(10.0);
-            if !live && !names.is_empty() && ui.button("Refresh").clicked() {
-                refresh = true;
             }
         });
 

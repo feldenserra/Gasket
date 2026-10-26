@@ -141,15 +141,15 @@ The app binary accepts the same split as `--serve` and `--ui`. With neither flag
 
 `get()` should return quickly. A counter in the reference app moves only when `get()` runs. It is not a clock, and it does not reset when you leave.
 
-A page's `State` does reset when you leave that page and open it again. The shell does that. Refresh and Submit keep what you typed.
+A page's `State` does reset when you leave that page and open it again. The shell does that. `nav.refresh()` and `nav.submit` keep what you typed. The shell does not draw a refresh control. A page calls `nav.refresh()` when it wants that route fetched again.
 
 The reference app:
 
 | Page | Route | Transport |
 | --- | --- | --- |
-| Index | `GET /api/index` | One HTTP response. Buttons open the other pages. |
-| Hello | `GET` / `POST /api/hello` | The route owns `Wish`. The page imports it once and calls `nav.submit`. The route reads `req.json::<Wish>`. |
-| About | `GET` / `POST /api/about` | GET still reads `?name=`. The route owns `Note`. The page imports it once and calls the same `nav.submit`. |
+| Index | `GET /api/index` | One HTTP response. Buttons open the other pages. The page calls `nav.refresh()`. |
+| Hello | `GET` / `POST /api/hello` | The route owns `Wish`. The page imports it once and calls `nav.submit`. The route reads `req.json::<Wish>`. The page calls `nav.refresh()` for a new GET. |
+| About | `GET` / `POST /api/about` | GET still reads `?name=`. The route owns `Note`. The page imports it once and calls the same `nav.submit`. The page calls `nav.refresh()` for a new GET. |
 | Stream | `GET /api/stream` | `STREAM_EVERY` is 1 second, pushed on `/ws` while the page is open. |
 | Pulse | `GET /api/pulse` | `STREAM_EVERY` is 5 seconds, pushed on `/ws` while the page is open. |
 | — | `GET /api/health` | No page. |

@@ -22,5 +22,9 @@ impl State {
                 text: self.text.clone(),
             });
         }
+        ui.label("Refresh does NOT reset state on this page");
+        if ui.button("Refresh").clicked() {
+            nav.refresh();
+        }
     }
 }
