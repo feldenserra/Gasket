@@ -1,0 +1,7 @@
+[workspace]
+members = [
+    "crates/gasket_cli",
+    "crates/gasket_core",
+    "crates/gasket_ui"
+]
+resolver = "2"
