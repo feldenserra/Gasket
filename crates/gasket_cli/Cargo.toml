@@ -1,10 +1,17 @@
 [package]
+name = "gasket-cli"
+description = "Gasket developer CLI"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+repository.workspace = true
+license-file = "../../LICENSE"
+
+# Published as `gasket-cli`. The crates.io name `gasket` already belongs to
+# an unrelated project, so the binary is named `gasket` and the package is not.
+[[bin]]
 name = "gasket"
-version = "0.1.0"
-edition = "2021"
+path = "src/main.rs"
 
 [dependencies]
-clap = { version = "4.0", features = ["derive"] }
-tokio = { version = "1.0", features = ["full"] }
-serde = { version = "1.0", features = ["derive"] }
-serde_json = "1.0"
+clap.workspace = true

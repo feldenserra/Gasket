@@ -82,7 +82,7 @@ cargo test --workspace
 cargo doc --workspace --no-deps
 ```
 
-Do not commit `target/` or `Cargo.lock` changes unless a workspace-level lockfile policy is explicitly adopted.
+Commit `Cargo.lock`. This workspace ships a CLI and reference apps, and the lockfile is the reproducible build. Do not commit `target/`.
 
 ---
 
@@ -136,7 +136,7 @@ Gasket follows idiomatic Rust as encoded by **rustfmt** and **Clippy**. Do not f
 | Formatter | rustfmt defaults (`cargo fmt --all`). No `#[rustfmt::skip]` unless generated code or a documented exception. |
 | Lints | Clippy pedantic enough that `-- -D warnings` stays clean. Fix warnings; do not `#[allow]` without a one-line justification. |
 | Edition | Rust 2021, matching the workspace crates. |
-| Naming | `snake_case` functions and modules, `CamelCase` types, `SCREAMING_SNAKE_CASE` constants. Crate names stay `gasket_*`. |
+| Naming | `snake_case` functions and modules, `CamelCase` types, `SCREAMING_SNAKE_CASE` constants. Rust paths stay `gasket_*`. crates.io package names stay `gasket-*` (`gasket-cli`, not `gasket`; that name is taken). |
 | Errors | Prefer structured error types (`thiserror` / `anyhow` only where the crate already uses them). Do not `unwrap()` in library paths; `expect` only with a comment stating the invariant. |
 | Async | Use Tokio. Do not block the runtime (`std::thread::sleep`, heavy `std::fs` in async context) without an explicit offload. |
 | Traits & APIs | Keep public surface small. New public items need rustdoc. Avoid `pub use` glob re-exports unless they already exist as a crate facade. |
@@ -144,7 +144,7 @@ Gasket follows idiomatic Rust as encoded by **rustfmt** and **Clippy**. Do not f
 | Tests | Unit tests live next to the code (`#[cfg(test)]`). Behavior that crosses crates belongs in integration tests under `tests/`. |
 | Dependencies | Reuse versions already in the workspace. New dependencies require a justification in the PR (size, license, maintenance). |
 
-Module layout should follow the crate you are editing. `gasket_core` is the Axum/WebSocket engine; `gasket_ui` is the native renderer; `gasket_cli` is the developer tool. Put code in the crate that owns that responsibility.
+Module layout should follow the crate you are editing. `gasket_protocol` is the internal wire contract. `gasket_core` is the Axum/WebSocket engine. `gasket_ui` is the native shell. `gasket_macros` discovers application folders. `gasket_cli` is the developer tool and does not embed an application. Reference apps live in `examples/`. An app is `src/main.rs` (`gasket_ui::app!()`), `src/api/<name>/mod.rs` (`get`), and `src/ui/<name>/mod.rs` (`show`). Startup, the window, and HTTP belong in the framework crates.
 
 ---
 

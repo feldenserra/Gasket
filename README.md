@@ -27,62 +27,64 @@ The result is an API-first architecture: your application logic lives in Rust, y
 
 ## Architecture
 
-Gasket is a **unified monorepo**. Three crates form the framework; **stitch** is the markup language they share.
+Gasket is a **unified monorepo**. The framework crates plus **stitch** are the product. An application is folders, not startup code.
 
 ```text
 ┌─────────────────────────────────────────────────────────────┐
-│                        gasket_cli                           │
+│                        gasket-cli                           │
 │         create · dev · build · package · inspect            │
 └──────────────────────────┬──────────────────────────────────┘
-                           │
+                           │ orchestrates an application
            ┌───────────────┴───────────────┐
            ▼                               ▼
-┌─────────────────────┐         ┌─────────────────────────┐
-│    gasket_core      │  WS /   │       gasket_ui         │
-│  Axum HTTP +        │  state  │  GPU-accelerated native │
-│  WebSocket engine   │ streams │  renderer (stitch)      │
-└─────────────────────┘         └─────────────────────────┘
+┌─────────────────────┐    gasket-protocol ┌─────────────────────────┐
+│    gasket-core      │◀──────────────────▶│       gasket-ui         │
+│  Axum HTTP +        │   state stream     │  native shell           │
+│  WebSocket engine   │      (/ws)         │  (stitch, later)        │
+└─────────────────────┘                    └─────────────────────────┘
 ```
 
-- **`gasket_cli`** — The developer surface. Scaffolds projects, runs the unified development loop, and produces release binaries. Distributed as the `gasket` command.
-- **`gasket_core`** — The backend engine. An [Axum](https://github.com/tokio-rs/axum) HTTP and WebSocket runtime that owns application APIs, sessions, and real-time state replication. The UI is a client of this API, not a second source of truth.
-- **`gasket_ui`** — The native client renderer. A GPU-accelerated process that compiles **stitch** markup into retained native scene graphs. No HTML parser. No DOM. Layout and paint stay in Rust.
+- **`gasket-cli`** — The developer surface, installed as the `gasket` command. It runs an application. It does not contain one. The crates.io package is `gasket-cli` because the name `gasket` is already taken.
+- **`gasket-core`** — The backend engine. An [Axum](https://github.com/tokio-rs/axum) HTTP and WebSocket runtime. It serves the routes an application declares and reserves `/ws`.
+- **`gasket-protocol`** — The internal wire contract between the engine and the shell. A page's model is the `Response` struct in that route, not a type added here.
+- **`gasket-ui`** — The native shell. It opens the window and loads each page from its route. Today the page UI is throwaway egui. The destination is a GPU renderer that compiles **stitch** into a retained scene graph: no HTML parser, no DOM.
+- **`gasket-macros`** — Finds `src/api` and `src/ui` folders so `main.rs` stays one line. Authors do not call it directly.
 
-**stitch** is the UI markup language: declarative, component-oriented, and designed to bind directly against core-streamed state. You write structure and intent; `gasket_ui` handles rendering.
+**stitch** is the UI markup language: declarative, component-oriented, and designed to bind directly against core-streamed state. You write structure and intent; `gasket_ui` handles rendering. The current shell is not that renderer.
 
 ---
 
 ## Quickstart
 
-The CLI is the intended entry point. Once published, a new application looks like this:
-
-```bash
-# Install the Gasket CLI
-cargo install gasket
-
-# Scaffold a native desktop app
-gasket new my-app
-cd my-app
-
-# Run the unified dev loop (core + native UI, live reload)
-gasket dev
-```
-
-`gasket new` will generate a workspace with a `gasket_core` API module, a `gasket_ui` stitch tree, and a local configuration file. `gasket dev` will start the Axum engine, open the native renderer, and stream state between them over WebSocket.
-
-Build a release binary with:
-
-```bash
-gasket build --release
-```
-
-> The CLI surface is coming online. Until `gasket new` ships, clone this repository and use the workspace crates directly:
+Clone the repository and start the reference app:
 
 ```bash
 git clone https://github.com/feldenserra/Gasket.git
 cd Gasket
-cargo build --workspace
+cargo run -p gasket-cli -- dev
 ```
+
+`gasket dev` runs `examples/hello`. That app is the developer experience:
+
+```text
+examples/hello/src/main.rs            gasket_ui::app!();
+examples/hello/src/api/hello/mod.rs   get() -> Response
+examples/hello/src/ui/hello/mod.rs    show(ui, data)
+```
+
+`src/api/hello` is `GET /api/hello`. `src/ui/hello` draws that response. Adding a feature means adding a folder. The framework starts the server and the window.
+
+```bash
+curl http://127.0.0.1:3000/api/hello
+```
+
+The same app directly:
+
+```bash
+cargo run -p gasket-hello
+```
+
+`gasket new` is not built yet. When it exists, a new application will be this same layout: one `main.rs`, an `api` folder per route, and a `ui` folder per page.
 
 ---
 
@@ -91,14 +93,20 @@ cargo build --workspace
 ```text
 gasket/
 ├── crates/
-│   ├── gasket_cli/     # Developer CLI (`gasket`)
-│   ├── gasket_core/    # Axum / WebSocket backend engine
-│   └── gasket_ui/      # GPU-accelerated native renderer
+│   ├── gasket_cli/          # `gasket` binary, package `gasket-cli`
+│   ├── gasket_core/         # Axum / WebSocket engine, package `gasket-core`
+│   ├── gasket_macros/       # Folder discovery, package `gasket-macros`
+│   ├── gasket_protocol/     # Internal wire messages, package `gasket-protocol`
+│   └── gasket_ui/           # Native shell, package `gasket-ui`
+├── examples/
+│   └── hello/               # Reference app: src/main.rs, src/api, src/ui
 ├── LICENSE
 ├── CONTRIBUTING.md
 ├── SECURITY.md
 └── README.md
 ```
+
+Rust import paths use underscores (`gasket_core`). Package names use hyphens (`gasket-core`).
 
 ---
 

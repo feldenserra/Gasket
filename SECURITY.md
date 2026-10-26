@@ -1,6 +1,6 @@
 # Security Policy
 
-Gasket is an API-first native framework: `gasket_core` accepts HTTP and WebSocket traffic, `gasket_ui` renders untrusted application markup, and `gasket_cli` executes local build and scaffolding commands. Vulnerabilities in any of those surfaces can affect host machines and downstream applications. Please report them privately.
+Gasket is an API-first native framework: `gasket_core` accepts HTTP and WebSocket traffic, `gasket_protocol` is the stream contract, `gasket_ui` renders untrusted application markup, and `gasket_cli` executes local build and scaffolding commands. Vulnerabilities in any of those surfaces can affect host machines and downstream applications. Please report them privately.
 
 ---
 
@@ -30,7 +30,7 @@ If you cannot use GitHub advisories, open a private contact request against the 
 
 ### What to include
 
-- Affected crate (`gasket_cli`, `gasket_core`, `gasket_ui`, stitch toolchain) and git commit or version
+- Affected crate (`gasket_cli`, `gasket_core`, `gasket_protocol`, `gasket_ui`, stitch toolchain) and git commit or version
 - Description of the issue and its security impact (crash, sandbox escape, RCE, data leak, privilege escalation, protocol spoofing, etc.)
 - Reproduction steps or a minimal proof-of-concept you are willing to share privately
 - Any known in-the-wild exploitation
