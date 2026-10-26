@@ -24,8 +24,12 @@ impl State {
         }
         ui.label("Refresh reset state on this page");
         if ui.button("Refresh").clicked() {
-            self.State::new();
+            self.reset();
             nav.refresh();
         }
+    }
+
+    fn reset(&mut self) {
+        self.name = String::new();
     }
 }
