@@ -1,0 +1,217 @@
+Gasket Source-Available License 1.0 (GSAL-1.0)
+Copyright (c) 2026 The Gasket Authors
+
+This license governs use of the Licensed Work. It is a source-available,
+dual-license agreement. It is NOT an OSI-approved Open Source license, and
+the Licensed Work does NOT convert to an Open Source license after any period
+of time.
+
+Licensed Work: Gasket, including without limitation the gasket_cli, gasket_core,
+and gasket_ui crates, the stitch markup language and toolchain, and all
+associated source code, documentation, and other materials distributed with
+this repository.
+
+Licensor: The Gasket Authors and any successor copyright holders of the
+Licensed Work.
+
+
+1. Definitions
+
+  "You" (or "Your") means an individual or Legal Entity exercising rights
+  under this License.
+
+  "Legal Entity" means the entity using the Licensed Work together with all
+  other entities that control, are controlled by, or are under common control
+  with that entity. For this definition, "control" means (a) the power,
+  direct or indirect, to cause the direction or management of such entity,
+  whether by contract or otherwise, or (b) ownership of fifty percent (50%)
+  or more of the outstanding shares or beneficial interest of such entity.
+
+  "Annual Gross Revenue" means the aggregate worldwide gross revenue of a
+  Legal Entity during its most recently completed fiscal year, from all
+  sources, before deduction of expenses, taxes, or other costs, measured in
+  United States dollars (USD). If the Legal Entity does not have a completed
+  fiscal year, Annual Gross Revenue is the Legal Entity's projected or
+  annualized gross revenue.
+
+  "Qualifying User" means:
+    (a) an individual using the Licensed Work for personal, hobby, educational,
+        research, or evaluation purposes;
+    (b) an internal development team of a Legal Entity; or
+    (c) a Legal Entity whose Annual Gross Revenue is less than or equal to
+        five million United States dollars (USD $5,000,000).
+
+  "Enterprise User" means a Legal Entity whose Annual Gross Revenue exceeds
+  five million United States dollars (USD $5,000,000).
+
+  "Managed Service" means offering the Licensed Work, or a substantial
+  portion of its functionality, to third parties as a paid hosted, cloud,
+  platform, or managed service, including any offering in which third parties
+  interact with a running instance of the Licensed Work that You operate.
+
+  "Commercial License" means a separate, written license agreement purchased
+  from the Licensor that grants production and other rights beyond those
+  provided by this License.
+
+
+2. Grant of Rights to Qualifying Users
+
+  Subject to the terms of this License, the Licensor hereby grants You a
+  worldwide, royalty-free, non-exclusive, non-transferable, non-sublicensable
+  license to copy, modify, create derivative works of, redistribute, and use
+  the Licensed Work, including in production, solely if:
+
+    (a) You are a Qualifying User; and
+    (b) You do not use the Licensed Work to provide a Managed Service.
+
+  This grant is intended to cover individuals, hobbyists, students,
+  researchers, internal development teams, and small commercial entities
+  whose Annual Gross Revenue does not exceed USD $5,000,000.
+
+
+3. Restricted Uses; Commercial License Required
+
+  You MUST purchase a Commercial License from the Licensor before any of the
+  following uses. These restrictions are mandatory and permanent:
+
+    (a) Use of the Licensed Work by an Enterprise User, including internal,
+        production, development, or evaluation use once the Legal Entity's
+        Annual Gross Revenue exceeds USD $5,000,000;
+
+    (b) Use of the Licensed Work to provide a Managed Service, regardless of
+        Annual Gross Revenue, entity size, or whether the offering is branded
+        as Gasket; or
+
+    (c) Any other use that is not expressly permitted under Section 2.
+
+  If You are an enterprise, corporation, or other commercial Legal Entity
+  making over USD $5,000,000 in Annual Gross Revenue, or You offer Gasket as
+  a paid managed service, You have no license under this document for that
+  use and must obtain a Commercial License or refrain from using the
+  Licensed Work.
+
+  If Your circumstances change such that You cease to be a Qualifying User
+  (including by exceeding the revenue threshold), You must obtain a
+  Commercial License before any further use, or cease all use of the
+  Licensed Work.
+
+
+4. Permanence; No Conversion to Open Source
+
+  The USD $5,000,000 revenue threshold, the Managed Service restriction, and
+  all other terms of this License are PERMANENT.
+
+  This License does not include a change date, conversion date, or
+  time-based grant of additional rights. The Licensed Work will not, by
+  virtue of the passage of time, become available under the MIT License, the
+  Apache License, the GNU General Public License, or any other Open Source
+  license.
+
+  The Licensor may, at its sole discretion, offer additional licenses
+  (including a Commercial License or an Open Source license) for some or all
+  of the Licensed Work. No such offer is made by this document, and none
+  shall be implied.
+
+
+5. Conditions on Redistribution and Modification
+
+  All copies of the original Licensed Work, modified versions, and
+  derivative works are subject to this License. You may redistribute the
+  Licensed Work, with or without modification, only if:
+
+    (a) You conspicuously display this License with every copy;
+    (b) You retain all copyright, license, and attribution notices;
+    (c) You license the redistributed work under this License, without
+        additional restrictions that contradict this License; and
+    (d) You do not remove or obscure any notice stating that Enterprise Users
+        and Managed Service providers must obtain a Commercial License.
+
+  If You receive the Licensed Work from a third party, these terms apply to
+  Your use of that work.
+
+  This License applies separately to each version of the Licensed Work
+  released by the Licensor.
+
+
+6. Contributions
+
+  By submitting a contribution (including code, documentation, tests, or
+  other material) to the Licensed Work, You assign to the Licensor, or if
+  assignment is not effective under applicable law You grant the Licensor, a
+  perpetual, irrevocable, worldwide, royalty-free copyright license to use,
+  reproduce, modify, distribute, sublicense, and relicense that contribution
+  as part of the Licensed Work under this License and under any Commercial
+  License or other license the Licensor may offer.
+
+  You represent that You have the legal right to make the contribution and
+  to grant the rights in this Section 6.
+
+
+7. Trademarks
+
+  This License does not grant any right to use the names, trademarks, service
+  marks, or logos of the Licensor, including "Gasket" and "stitch", except
+  as required for reasonable and customary description of the origin of the
+  Licensed Work and reproduction of copyright notices.
+
+
+8. Disclaimer of Warranty
+
+  TO THE EXTENT PERMITTED BY APPLICABLE LAW, THE LICENSED WORK IS PROVIDED
+  ON AN "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, EXPRESS
+  OR IMPLIED, INCLUDING WITHOUT LIMITATION WARRANTIES OF MERCHANTABILITY,
+  FITNESS FOR A PARTICULAR PURPOSE, NON-INFRINGEMENT, AND TITLE. YOU BEAR
+  THE ENTIRE RISK AS TO THE QUALITY AND PERFORMANCE OF THE LICENSED WORK.
+
+
+9. Limitation of Liability
+
+  TO THE EXTENT PERMITTED BY APPLICABLE LAW, IN NO EVENT SHALL THE LICENSOR
+  BE LIABLE FOR ANY DAMAGES ARISING FROM THIS LICENSE OR THE USE OR
+  INABILITY TO USE THE LICENSED WORK, INCLUDING DIRECT, INDIRECT, SPECIAL,
+  INCIDENTAL, CONSEQUENTIAL, EXEMPLARY, OR PUNITIVE DAMAGES, WHETHER IN
+  CONTRACT, TORT, OR OTHERWISE, EVEN IF THE LICENSOR HAS BEEN ADVISED OF THE
+  POSSIBILITY OF SUCH DAMAGES.
+
+
+10. Termination
+
+  Any use of the Licensed Work in violation of this License automatically
+  terminates Your rights under this License for the current and all other
+  versions of the Licensed Work. Upon termination, You must cease all use
+  and destroy all copies of the Licensed Work in Your possession, except
+  that provisions which by their nature should survive (including Sections
+  4, 6, 7, 8, 9, 11, and 12) shall survive termination.
+
+  If You have a separate Commercial License in effect, termination of this
+  License does not terminate that Commercial License except as provided in
+  that agreement.
+
+
+11. Commercial Licensing
+
+  Commercial Licenses for Enterprise Users, Managed Service providers, and
+  other restricted uses are available from the Licensor. To inquire, open a
+  discussion or contact request in the official Gasket repository:
+
+      https://github.com/feldenserra/Gasket
+
+  Use of the Licensed Work under a Commercial License is governed exclusively
+  by that agreement, not by this License, except that this License continues
+  to apply to any use that is not covered by the Commercial License.
+
+
+12. Miscellaneous
+
+  This License constitutes the entire agreement between You and the Licensor
+  concerning the Licensed Work, except for any Commercial License You may
+  separately execute. If any provision is held unenforceable, the remaining
+  provisions continue in full force. Failure to enforce any provision is not
+  a waiver. You may not assign this License without the Licensor's prior
+  written consent, except to a successor of substantially all of Your assets
+  that agrees in writing to be bound by this License.
+
+  This License is inspired by source-available dual-license models such as
+  the Business Source License, but it is an independent license. It is not
+  the Business Source License, does not use that trademark, and does not
+  include a Change Date or Change License.
