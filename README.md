@@ -76,8 +76,8 @@ cargo run -p gasket-cli -- dev
 examples/hello/src/main.rs             gasket_ui::app!();
 examples/hello/src/api/index/mod.rs    dashboard JSON
 examples/hello/src/ui/index/mod.rs     home page, buttons open other pages
-examples/hello/src/api/hello/mod.rs    HTTP snapshot
-examples/hello/src/ui/hello/mod.rs     draws that snapshot
+examples/hello/src/api/hello/mod.rs    GET snapshot and POST a name
+examples/hello/src/ui/hello/mod.rs     text box, submit, draws the reply
 examples/hello/src/api/about/mod.rs    second HTTP snapshot
 examples/hello/src/ui/about/mod.rs     draws that snapshot
 examples/hello/src/api/stream/mod.rs   STREAM_EVERY of 1 second
@@ -146,7 +146,7 @@ The reference app:
 | Page | Route | Transport |
 | --- | --- | --- |
 | Index | `GET /api/index` | One HTTP response. Buttons open the other pages. |
-| Hello | `GET /api/hello` | One HTTP response. Refresh asks again. |
+| Hello | `GET` / `POST /api/hello` | GET opens the page. Submit POSTs a name and shows the reply. |
 | About | `GET /api/about` | One HTTP response. Refresh asks again. |
 | Stream | `GET /api/stream` | `STREAM_EVERY` is 1 second, pushed on `/ws` while the page is open. |
 | Pulse | `GET /api/pulse` | `STREAM_EVERY` is 5 seconds, pushed on `/ws` while the page is open. |

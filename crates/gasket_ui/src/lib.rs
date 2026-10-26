@@ -5,6 +5,7 @@
 //! server, opens the window, and fetches the route. egui is the placeholder
 //! page UI until stitch replaces it.
 
+use std::collections::HashMap;
 use std::io::{Read, Write};
 use std::net::SocketAddr;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -181,10 +182,13 @@ pub struct Page {
     pub paint: fn(&mut egui::Ui, &[u8], &mut Nav<'_>),
 }
 
-/// Lets a page open another page by folder name.
+/// Lets a page open another page, keep a text field, or POST JSON to its route.
 pub struct Nav<'a> {
+    page: &'static str,
     names: &'a [&'static str],
     target: &'a mut Option<usize>,
+    fields: &'a mut HashMap<String, String>,
+    post: &'a mut Option<Vec<u8>>,
 }
 
 impl Nav<'_> {
@@ -193,6 +197,18 @@ impl Nav<'_> {
         if let Some(index) = self.names.iter().position(|name| *name == page) {
             *self.target = Some(index);
         }
+    }
+
+    /// A text value that survives redraws. Use with `ui.text_edit_singleline`.
+    pub fn field(&mut self, name: &str) -> &mut String {
+        self.fields
+            .entry(format!("{}:{name}", self.page))
+            .or_default()
+    }
+
+    /// POST `body` to this page's route. The next `show` receives the reply.
+    pub fn post(&mut self, body: serde_json::Value) {
+        *self.post = Some(body.to_string().into_bytes());
     }
 }
 
@@ -467,6 +483,10 @@ fn authority_from_url(url: &str) -> Result<String, String> {
 }
 
 fn http_get(authority: &str, path: &str) -> Result<Vec<u8>, String> {
+    http_request(authority, "GET", path, &[])
+}
+
+fn http_request(authority: &str, method: &str, path: &str, body: &[u8]) -> Result<Vec<u8>, String> {
     let mut stream = std::net::TcpStream::connect(authority).map_err(|err| err.to_string())?;
     stream
         .set_read_timeout(Some(Duration::from_secs(5)))
@@ -474,12 +494,23 @@ fn http_get(authority: &str, path: &str) -> Result<Vec<u8>, String> {
     stream
         .set_write_timeout(Some(Duration::from_secs(5)))
         .map_err(|err| err.to_string())?;
+    let extra = if method == "POST" {
+        format!(
+            "Content-Type: application/json\r\nContent-Length: {}\r\n",
+            body.len()
+        )
+    } else {
+        String::new()
+    };
     let request = format!(
-        "GET {path} HTTP/1.1\r\nHost: {authority}\r\nConnection: close\r\nAccept: application/json\r\n\r\n"
+        "{method} {path} HTTP/1.1\r\nHost: {authority}\r\nConnection: close\r\nAccept: application/json\r\n{extra}\r\n"
     );
     stream
         .write_all(request.as_bytes())
         .map_err(|err| err.to_string())?;
+    if !body.is_empty() {
+        stream.write_all(body).map_err(|err| err.to_string())?;
+    }
 
     let mut buffer = Vec::new();
     let mut chunk = [0u8; 1024];
@@ -561,6 +592,7 @@ struct ShellApp {
     pending: Option<mpsc::Receiver<Result<Vec<u8>, String>>>,
     live: bool,
     stop_stream: Option<Arc<AtomicBool>>,
+    fields: HashMap<String, String>,
 }
 
 impl ShellApp {
@@ -579,6 +611,7 @@ impl ShellApp {
             pending: None,
             live: false,
             stop_stream: None,
+            fields: HashMap::new(),
         };
         app.refresh();
         app
@@ -614,6 +647,18 @@ impl ShellApp {
         let (tx, rx) = mpsc::channel();
         std::thread::spawn(move || {
             let _ = tx.send(http_get(&authority, path));
+        });
+        self.pending = Some(rx);
+    }
+
+    fn submit(&mut self, path: &'static str, body: Vec<u8>) {
+        if self.pending.is_some() {
+            return;
+        }
+        let authority = self.authority.clone();
+        let (tx, rx) = mpsc::channel();
+        std::thread::spawn(move || {
+            let _ = tx.send(http_request(&authority, "POST", path, &body));
         });
         self.pending = Some(rx);
     }
@@ -677,6 +722,7 @@ impl eframe::App for ShellApp {
         let authority = self.authority.clone();
         let mut destination = None;
         let mut refresh = false;
+        let mut posted = None;
 
         egui::CentralPanel::default().show(ctx, |ui| {
             if has_index && current_name != Some("index") && ui.button("Back").clicked() {
@@ -703,8 +749,11 @@ impl eframe::App for ShellApp {
                 ui.label(err);
             } else if let (Some(page), Some(body)) = (page, body.as_deref()) {
                 let mut nav = Nav {
+                    page: page.name,
                     names: &names,
                     target: &mut destination,
+                    fields: &mut self.fields,
+                    post: &mut posted,
                 };
                 (page.paint)(ui, body, &mut nav);
             } else if names.is_empty() {
@@ -723,6 +772,10 @@ impl eframe::App for ShellApp {
         if let Some(index) = destination {
             if index != self.current {
                 self.go(index);
+            }
+        } else if let Some(body) = posted {
+            if let Some(page) = self.pages.get(self.current) {
+                self.submit(page.path, body);
             }
         } else if refresh {
             self.refresh();

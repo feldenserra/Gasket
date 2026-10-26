@@ -6,23 +6,33 @@ pub struct Response {
 
 pub fn get(_req: &gasket_ui::Request) -> Response {
     Response {
-        message: "Hello from the Gasket reference app".into(),
+        message: "Type a name and submit.".into(),
         status: "ok".into(),
     }
 }
 
 pub fn post(req: &gasket_ui::Request) -> Response {
     match req.json::<gasket_ui::serde_json::Value>() {
-        Ok(body) => Response {
-            message: body
-                .get("message")
+        Ok(body) => {
+            let name = body
+                .get("name")
                 .and_then(|value| value.as_str())
                 .unwrap_or("")
-                .to_string(),
-            status: "posted".into(),
-        },
+                .trim();
+            if name.is_empty() {
+                Response {
+                    message: "Type a name first.".into(),
+                    status: "ok".into(),
+                }
+            } else {
+                Response {
+                    message: format!("I wish you the best, {name}"),
+                    status: "ok".into(),
+                }
+            }
+        }
         Err(_) => Response {
-            message: String::new(),
+            message: "That was not JSON.".into(),
             status: "bad json".into(),
         },
     }
@@ -35,17 +45,17 @@ mod tests {
     #[test]
     fn hello_snapshot() {
         let response = get(&gasket_ui::Request::get("/api/hello"));
-        assert_eq!(response.message, "Hello from the Gasket reference app");
+        assert_eq!(response.message, "Type a name and submit.");
         assert_eq!(response.status, "ok");
     }
 
     #[test]
-    fn post_echoes_the_json_message() {
+    fn post_wishes_the_name_well() {
         let mut req = gasket_ui::Request::get("/api/hello");
         req.method = "POST".into();
-        req.body = br#"{"message":"hi"}"#.to_vec();
+        req.body = br#"{"name":"Ada"}"#.to_vec();
         let response = post(&req);
-        assert_eq!(response.status, "posted");
-        assert_eq!(response.message, "hi");
+        assert_eq!(response.status, "ok");
+        assert_eq!(response.message, "I wish you the best, Ada");
     }
 }
