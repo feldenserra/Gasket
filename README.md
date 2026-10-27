@@ -135,6 +135,8 @@ cargo run -p gasket-hello
 
 A page with no matching route does not compile. Folder names are Rust identifiers (`hello`, not `my-page`).
 
+Structs and enums in `src/api` are JSON. Gasket implements `Serialize` and `Deserialize` for them, so a route file does not repeat those derives. A type that already implements either trait is left alone.
+
 `index` is home. The window opens there. Its buttons are data: `nav.open("hello")` uses the page name from `GET /api/index`. Back, shown by the shell on every other page, returns to `index`.
 
 ```rust

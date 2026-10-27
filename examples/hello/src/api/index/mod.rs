@@ -1,10 +1,8 @@
-#[derive(serde::Serialize, serde::Deserialize)]
 pub struct Link {
     pub page: String,
     pub title: String,
 }
 
-#[derive(serde::Serialize, serde::Deserialize)]
 pub struct Response {
     pub title: String,
     pub links: Vec<Link>,
@@ -50,5 +48,8 @@ mod tests {
         assert_eq!(response.links[2].page, "stream");
         assert_eq!(response.links[3].page, "pulse");
         assert!(response.note.contains("/api/health"));
+        let bytes = gasket_ui::serde_json::to_vec(&response).unwrap();
+        let back: Response = gasket_ui::serde_json::from_slice(&bytes).unwrap();
+        assert_eq!(back.links[0].page, "hello");
     }
 }

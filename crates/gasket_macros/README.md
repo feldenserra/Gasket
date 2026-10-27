@@ -8,7 +8,7 @@ Applications depend on [`gasket-ui`](https://crates.io/crates/gasket-ui). `gaske
 
 ## What this crate does
 
-This is a procedural macro. At compile time it reads the application crate's `src/api` and `src/ui` folders and expands `gasket_ui::app!` into modules, routes, and `fn main`.
+This is a procedural macro. At compile time it reads the application crate's `src/api` and `src/ui` folders and expands `gasket_ui::app!` into modules, routes, and `fn main`. Structs and enums in `src/api` get `Serialize` and `Deserialize`.
 
 The `gasket` command is [`gasket-cli`](https://crates.io/crates/gasket-cli).
 

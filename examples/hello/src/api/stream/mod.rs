@@ -7,7 +7,6 @@ static HITS: AtomicU64 = AtomicU64::new(0);
 /// with its own interval. The page does not mention the socket.
 pub const STREAM_EVERY: Duration = Duration::from_secs(1);
 
-#[derive(serde::Serialize, serde::Deserialize)]
 pub struct Response {
     pub message: String,
     pub count: u64,

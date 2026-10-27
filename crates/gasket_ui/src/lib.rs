@@ -21,6 +21,8 @@ use axum::{Json, Router};
 #[doc(hidden)]
 pub use gasket_macros::app as app_impl;
 #[doc(hidden)]
+pub use serde;
+#[doc(hidden)]
 pub use serde_json;
 
 /// Placeholder page UI. Pages draw into this until stitch exists.
@@ -37,7 +39,9 @@ pub use eframe::egui;
 /// closes it when you leave. `get` runs for the first paint and for each
 /// push. The page still only draws the response.
 /// A page with no matching route does not compile. `get` should return quickly;
-/// it runs on the server.
+/// it runs on the server. Structs and enums in an api module are JSON: `Serialize`
+/// and `Deserialize` are implemented for them. A type that already derives or
+/// implements either trait is left alone.
 #[macro_export]
 macro_rules! app {
     () => {

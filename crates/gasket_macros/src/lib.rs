@@ -1,6 +1,9 @@
 //! Discovers `src/api` and `src/ui` folders.
 //!
 //! Application authors do not call this crate. `gasket_ui::app!` does.
+//! Structs and enums in `src/api` get `Serialize` and `Deserialize`.
+
+mod json;
 
 use proc_macro::TokenStream;
 use proc_macro2::TokenStream as TokenStream2;
@@ -13,6 +16,7 @@ struct RouteDecl {
     name: String,
     stream: bool,
     post: bool,
+    json: TokenStream2,
 }
 
 #[derive(Debug)]
@@ -47,10 +51,12 @@ fn discover(src: &Path) -> Result<Layout, String> {
         .into_iter()
         .map(|name| {
             let file = src.join("api").join(&name).join("mod.rs");
+            let source = fs::read_to_string(&file).unwrap_or_default();
             RouteDecl {
                 name,
-                stream: declares_stream(&file),
-                post: declares_fn(&file, "post"),
+                stream: source_has(&source, "const STREAM_EVERY"),
+                post: source_has(&source, "fn post("),
+                json: json::impls(&source),
             }
         })
         .collect();
@@ -65,20 +71,7 @@ fn discover(src: &Path) -> Result<Layout, String> {
     Ok(Layout { routes, pages })
 }
 
-/// A route streams when its module defines `STREAM_EVERY`.
-fn declares_stream(path: &Path) -> bool {
-    source_has(path, "const STREAM_EVERY")
-}
-
-/// A route accepts POST when its module defines `fn post(`.
-fn declares_fn(path: &Path, name: &str) -> bool {
-    source_has(path, &format!("fn {name}("))
-}
-
-fn source_has(path: &Path, needle: &str) -> bool {
-    let Ok(source) = fs::read_to_string(path) else {
-        return false;
-    };
+fn source_has(source: &str, needle: &str) -> bool {
     source.lines().any(|line| {
         let code = line.split("//").next().unwrap_or("");
         code.contains(needle)
@@ -116,7 +109,19 @@ fn modules(dir: &Path, label: &str) -> Result<Vec<String>, String> {
 fn expand_layout(layout: &Layout) -> TokenStream2 {
     let api_mods = layout.routes.iter().map(|route| {
         let ident = format_ident!("{}", route.name);
-        quote! { pub mod #ident; }
+        let name = &route.name;
+        let json = &route.json;
+        quote! {
+            pub mod #ident {
+                include!(concat!(
+                    env!("CARGO_MANIFEST_DIR"),
+                    "/src/api/",
+                    #name,
+                    "/mod.rs"
+                ));
+                #json
+            }
+        }
     });
     let ui_mods = layout.pages.iter().map(|name| {
         let ident = format_ident!("{name}");
@@ -267,6 +272,7 @@ mod tests {
         assert_eq!(layout.pages, vec!["hello".to_string()]);
         let tokens = expand_layout(&layout).to_string();
         assert!(tokens.contains("pub mod hello"));
+        assert!(tokens.contains("include !"));
         assert!(tokens.contains("\"/api/hello\""));
         assert!(tokens.contains("stream_every"));
 
@@ -296,7 +302,8 @@ mod tests {
         fs::create_dir_all(root.join("src/api/orders")).unwrap();
         fs::write(
             root.join("src/api/orders/mod.rs"),
-            b"pub const STREAM_EVERY: std::time::Duration = std::time::Duration::from_secs(5);\n",
+            b"pub const STREAM_EVERY: std::time::Duration = std::time::Duration::from_secs(5);\n\
+              pub struct Response { pub n: u8 }\n",
         )
         .unwrap();
         fs::create_dir_all(root.join("src/ui/orders")).unwrap();
@@ -306,6 +313,7 @@ mod tests {
         assert!(layout.routes[0].stream);
         let tokens = expand_layout(&layout).to_string();
         assert!(tokens.contains("STREAM_EVERY"));
+        assert!(tokens.contains("Serialize for Response"));
 
         fs::remove_dir_all(&root).unwrap();
     }

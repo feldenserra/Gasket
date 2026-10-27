@@ -1,10 +1,8 @@
-#[derive(serde::Serialize, serde::Deserialize)]
 pub struct Response {
     pub message: String,
     pub status: String,
 }
 
-#[derive(serde::Serialize, serde::Deserialize)]
 pub struct Wish {
     pub name: String,
 }
@@ -49,6 +47,17 @@ mod tests {
         let response = get(&gasket_ui::Request::get("/api/hello"));
         assert_eq!(response.message, "Type a name and submit.");
         assert_eq!(response.status, "ok");
+    }
+
+    #[test]
+    fn types_roundtrip_json() {
+        let response = get(&gasket_ui::Request::get("/api/hello"));
+        let bytes = gasket_ui::serde_json::to_vec(&response).unwrap();
+        let back: Response = gasket_ui::serde_json::from_slice(&bytes).unwrap();
+        assert_eq!(back.message, response.message);
+        assert_eq!(back.status, response.status);
+        let wish: Wish = gasket_ui::serde_json::from_slice(br#"{"name":"Ada"}"#).unwrap();
+        assert_eq!(wish.name, "Ada");
     }
 
     #[test]

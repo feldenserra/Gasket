@@ -1,10 +1,8 @@
-#[derive(serde::Serialize, serde::Deserialize)]
 pub struct Response {
     pub title: String,
     pub body: String,
 }
 
-#[derive(serde::Serialize, serde::Deserialize)]
 pub struct Note {
     pub text: String,
 }
